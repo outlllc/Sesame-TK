@@ -94,36 +94,36 @@ class WatermarkView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (width == 0 || height == 0 || textLines.isEmpty()) return
-
-        val maxLineWidth = textLines.maxOfOrNull { paint.measureText(it) } ?: 0f
-        val lineHeight = paint.fontSpacing
-        val totalTextHeight = lineHeight * textLines.size
-
-        var horizontalSpacing = (maxLineWidth * 1.3f / densityFactor).toInt()
-        var verticalSpacing = (totalTextHeight * 2.3f / densityFactor).toInt()
-
-        horizontalSpacing = horizontalSpacing.coerceAtMost(width)
-        verticalSpacing = verticalSpacing.coerceAtMost(height)
-
-        var yIndex = 0
-        canvas.withRotation(rotationAngle) {
-            var y = -height.toFloat() + offsetY
-            while (y < height * 2) {
-                var x = -width.toFloat() + offsetX
-                if (yIndex % 2 == 1) x += horizontalSpacing / 2
-
-                while (x < width * 2) {
-                    val baseY = y - totalTextHeight / 2
-                    for ((i, line) in textLines.withIndex()) {
-                        drawText(line, x, baseY + i * lineHeight, paint)
-                    }
-                    x += horizontalSpacing
-                }
-                y += verticalSpacing
-                yIndex++
-            }
-        }
+//        if (width == 0 || height == 0 || textLines.isEmpty()) return
+//
+//        val maxLineWidth = textLines.maxOfOrNull { paint.measureText(it) } ?: 0f
+//        val lineHeight = paint.fontSpacing
+//        val totalTextHeight = lineHeight * textLines.size
+//
+//        var horizontalSpacing = (maxLineWidth * 1.3f / densityFactor).toInt()
+//        var verticalSpacing = (totalTextHeight * 2.3f / densityFactor).toInt()
+//
+//        horizontalSpacing = horizontalSpacing.coerceAtMost(width)
+//        verticalSpacing = verticalSpacing.coerceAtMost(height)
+//
+//        var yIndex = 0
+//        canvas.withRotation(rotationAngle) {
+//            var y = -height.toFloat() + offsetY
+//            while (y < height * 2) {
+//                var x = -width.toFloat() + offsetX
+//                if (yIndex % 2 == 1) x += horizontalSpacing / 2
+//
+//                while (x < width * 2) {
+//                    val baseY = y - totalTextHeight / 2
+//                    for ((i, line) in textLines.withIndex()) {
+//                        drawText(line, x, baseY + i * lineHeight, paint)
+//                    }
+//                    x += horizontalSpacing
+//                }
+//                y += verticalSpacing
+//                yIndex++
+//            }
+//        }
     }
 
     /**

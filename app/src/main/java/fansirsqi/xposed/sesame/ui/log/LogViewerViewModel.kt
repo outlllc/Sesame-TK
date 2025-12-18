@@ -56,7 +56,7 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     val uiState = _uiState.asStateFlow()
 
     // 字体大小状态流
-    private val _fontSize = MutableStateFlow(prefs.getFloat(logFontSizeKey, 12f))
+    private val _fontSize = MutableStateFlow(prefs.getFloat(logFontSizeKey, 9f))
     val fontSize = _fontSize.asStateFlow()
 
     // 滚动事件通道
@@ -333,8 +333,8 @@ class LogViewerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun resetFontSize() {
-        _fontSize.value = 12f
-        saveFontSize(12f)
+        _fontSize.value = 9f
+        saveFontSize(9f)
     }
 
     fun toggleAutoScroll(enabled: Boolean) {

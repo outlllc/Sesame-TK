@@ -73,16 +73,16 @@
             android:text="@string/farm_log"
             app:icon="@drawable/farm"
             app:layout_constraintStart_toEndOf="@id/btn_forest_log"
-            app:layout_constraintEnd_toStartOf="@id/btn_github"
+            app:layout_constraintEnd_toStartOf="@id/btn_other_log"
             app:layout_constraintTop_toTopOf="parent" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_github"
+            android:id="@+id/btn_other_log"
             style="@style/Widget.App.Button.Main"
             android:background="@drawable/blur_button_bg"
             android:onClick="onClick"
-            android:text="@string/visit_github"
-            app:icon="@drawable/github"
+            android:text="@string/other_log"
+            app:icon="@drawable/other_log"
             app:layout_constraintStart_toEndOf="@id/btn_farm_log"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
@@ -119,7 +119,7 @@
             app:icon="@drawable/setting"
             app:layout_constraintStart_toEndOf="@id/btn_view_all_log_file"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/btn_github" />
+            app:layout_constraintTop_toBottomOf="@id/btn_other_log" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
