@@ -624,14 +624,22 @@ class AntFarm : ModelTask() {
                 tc.countDebug("收取道具奖励")
             }
             if (recordFarmGame!!.value) {
-                for (time in farmGameTime!!.value) {
-                    if (TimeUtil.checkNowInTimeRange(time)) {
-                        recordFarmGame(GameType.starGame)
-                        recordFarmGame(GameType.jumpGame)
-                        recordFarmGame(GameType.flyGame)
-                        recordFarmGame(GameType.hitGame)
-                        break
+                if (!Status.hasFlagToday("farm::farmGameFinished")) {
+                    if (Status.hasFlagToday("farm::accelerateLimit") || !Status.canUseAccelerateTool()) {
+                        if (foodStock > foodStockLimit - 90) {
+                            recordFarmGame(GameType.flyGame)
+                            recordFarmGame(GameType.hitGame)
+                            recordFarmGame(GameType.starGame)
+                            recordFarmGame(GameType.jumpGame)
+                            Status.setFlagToday("farm::farmGameFinished")
+                        } else {
+                            Log.farm("加速卡已使用达上限;饲料没有满，暂不执行游戏改分")
+                        }
+                    } else {
+                        Log.farm("加速卡未使用到达上限，暂不执行游戏改分")
                     }
+                } else {
+                    Log.farm("今日庄园游戏改分已完成")
                 }
                 tc.countDebug("游戏改分(星星球、登山赛、飞行赛、揍小鸡)")
             }
@@ -665,6 +673,7 @@ class AntFarm : ModelTask() {
             if (donation!!.value && Status.canDonationEgg(userId) && harvestBenevolenceScore >= 1) {
                 handleDonation(donationCount!!.value)
                 tc.countDebug("每日捐蛋")
+                Log.farm("今日捐蛋完成")
             }
 
 
@@ -674,6 +683,7 @@ class AntFarm : ModelTask() {
                 if (TaskTimeChecker.isTimeReached(doFarmTaskTime?.value, "0830")) {
                     doFarmTasks()
                     tc.countDebug("饲料任务")
+                    Status.setFlagToday("farm::farmTaskFinished")
                 } else {
                     Log.record(TAG, "饲料任务未到执行时间，跳过")
                 }
@@ -704,13 +714,17 @@ class AntFarm : ModelTask() {
 
             // 抽抽乐
             if (enableChouchoule!!.value) {
-                // 检查是否到达执行时间
-                if (TaskTimeChecker.isTimeReached(enableChouchouleTime?.value, "0900")) {
-                    val ccl = ChouChouLe()
-                    ccl.chouchoule()
-                    tc.countDebug("抽抽乐")
+                if (!Status.hasFlagToday("farm::chouChouLeFinished")) {
+                    if (Status.hasFlagToday("farm::farmGameFinished")) {
+                        val ccl = ChouChouLe()
+                        ccl.chouchoule()
+                        tc.countDebug("抽抽乐")
+                        Status.setFlagToday("farm::chouChouLeFinished")
+                    } else {
+                    Log.farm("游戏改分还没有执行，暂不执行抽抽乐")
+                    }
                 } else {
-                    Log.record(TAG, "抽抽乐未到执行时间，跳过")
+                    Log.farm("今日抽抽乐已完成")
                 }
             }
 
@@ -738,6 +752,13 @@ class AntFarm : ModelTask() {
             //小鸡睡觉&起床
             animalSleepAndWake()
             tc.countDebug("小鸡睡觉&起床")
+
+            // 小鸡睡觉后领取饲料
+            if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus) {
+                Log.record(TAG, "小鸡正在睡觉，领取饲料")
+                receiveFarmAwards()
+            }
+
             tc.stop()
         } catch (e: CancellationException) {
             // 协程取消是正常现象，不记录为错误
@@ -942,8 +963,8 @@ class AntFarm : ModelTask() {
             val sleepMinutesInt = sleepMinutes!!.value
             val animalWakeUpTimeCalendar = animalSleepTimeCalendar.clone() as Calendar
             animalWakeUpTimeCalendar.add(Calendar.MINUTE, sleepMinutesInt)
-            val animalSleepTime = animalSleepTimeCalendar.getTimeInMillis()
-            val animalWakeUpTime = animalWakeUpTimeCalendar.getTimeInMillis()
+            var animalSleepTime = animalSleepTimeCalendar.getTimeInMillis()
+            var animalWakeUpTime = animalWakeUpTimeCalendar.getTimeInMillis()
             if (animalSleepTime > animalWakeUpTime) {
                 Log.record(TAG, "小鸡睡觉设置有误，请重新设置")
                 return
@@ -957,6 +978,19 @@ class AntFarm : ModelTask() {
                 Log.record(TAG, "已错过小鸡今日睡觉时间")
                 return
             }
+
+            // 检查是否是昨晚开始的觉还没睡完
+            if (now.before(animalWakeUpTimeCalendar)) {
+                val lastNightSleepCalendar = animalSleepTimeCalendar.clone() as Calendar
+                lastNightSleepCalendar.add(Calendar.DAY_OF_MONTH, -1)
+                val lastNightWakeUpCalendar = animalWakeUpTimeCalendar.clone() as Calendar
+                lastNightWakeUpCalendar.add(Calendar.DAY_OF_MONTH, -1)
+                if (now.after(lastNightSleepCalendar) && now.before(lastNightWakeUpCalendar)) {
+                    animalSleepTime = lastNightSleepCalendar.timeInMillis
+                    animalWakeUpTime = lastNightWakeUpCalendar.timeInMillis
+                }
+            }
+
             val sleepTaskId = "AS|$animalSleepTime"
             val wakeUpTaskId = "AW|$animalWakeUpTime"
             if (!hasChildTask(sleepTaskId) && !afterSleepTime) {
@@ -1146,6 +1180,8 @@ class AntFarm : ModelTask() {
 // 5. 计算并安排下一次自动喂食任务（仅当小鸡不在睡觉时）
         if (AnimalFeedStatus.SLEEPY.name != ownerAnimal.animalFeedStatus) {
             try {
+                //创建蹲点任务时间点前先同步countdown，因为可能因为好友小鸡在两次执行间隔间偷吃而引起蹲点时间变动。
+                syncAnimalStatus(ownerFarmId)
                 // 直接使用服务器计算的权威倒计时（单位：秒）
                 val remainingSec = countdown?.toDouble()?.coerceAtLeast(0.0)
                 // 如果倒计时为0，跳过任务创建
@@ -1186,6 +1222,7 @@ class AntFarm : ModelTask() {
                             "添加蹲点投喂🥣[" + UserMap.getCurrentMaskName() + "]在[" +
                                     TimeUtil.getCommonDate(nextFeedTime) + "]执行"
                         )
+                        Log.farm(UserMap.getCurrentMaskName() + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
                     } else {
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
                         if (feedAnimal(ownerFarmId)) {
@@ -1946,11 +1983,11 @@ class AntFarm : ModelTask() {
 
                             if ("ALLPURPOSE" == task.optString("awardType")) {
                                 // 使用 ">=" 防止刚好到上限时仍然领取导致 331
-                                if (awardCount + foodStock >= foodStockLimit) {
+                                if (awardCount + foodStock > foodStockLimit) {
                                     unreceiveTaskAward++
                                     Log.record(
                                         TAG,
-                                        taskTitle + "领取" + awardCount + "g饲料后将达到/超过[" + foodStockLimit + "g]上限!终止领取"
+                                        taskTitle + "领取" + awardCount + "g饲料后将超过[" + foodStockLimit + "g]上限!终止领取。现有饲料" + foodStock +"g"
                                     )
                                     isFeedFull = true
                                     break
@@ -1961,6 +1998,10 @@ class AntFarm : ModelTask() {
                             if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
                                 add2FoodStock(awardCount)
                                 Log.farm("庄园奖励[" + taskTitle + "]#" + awardCount + "g")
+                                if(foodStock == foodStockLimit){
+                                    Log.farm("领取饲料等于饲料上限" + foodStockLimit + "g，停止后续领取")
+                                    break
+                                }
                                 doubleCheck = true
                                 if (unreceiveTaskAward > 0) unreceiveTaskAward--
                             }
@@ -2130,11 +2171,13 @@ class AntFarm : ModelTask() {
         )
         // 6) 判定条件：至少还能吃满 1 小时（3600 秒）的量才使用一次加速卡
         //    单位换算：consumeSpeed 单位为 g/s，因此 1 小时的消耗 = totalConsumeSpeed * 3600
+        ////修改为剩余时间大于20分钟则使用加速卡
         var isUseAccelerateTool = false
-        while (foodInTroughLimitCurrent - totalFoodHaveEatten >= totalConsumeSpeed * 3600) {
+        while (foodInTroughLimitCurrent - totalFoodHaveEatten >= totalConsumeSpeed * 1200) {
             // 检查本地计数器上限，防止无限使用
             if (!Status.canUseAccelerateTool()) {
                 Log.record(TAG, "加速卡内部⏩已达到本地使用上限(8次)，停止使用")
+                Status.setFlagToday("farm::accelerateLimit")
                 break
             }
             // 可选条件：若勾选“仅心情满值时加速”，且当前心情不为 100，则跳出
