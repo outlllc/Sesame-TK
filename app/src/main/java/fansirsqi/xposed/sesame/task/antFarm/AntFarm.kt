@@ -2,6 +2,8 @@
 
 package fansirsqi.xposed.sesame.task.antFarm
 
+import android.annotation.SuppressLint
+import android.content.Context
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
@@ -1223,6 +1225,7 @@ class AntFarm : ModelTask() {
                                     TimeUtil.getCommonDate(nextFeedTime) + "]执行"
                         )
                         Log.farm(UserMap.getCurrentMaskName() + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
+                        setAlarm("FA", (remainingSec * 1000).toLong())
                     } else {
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
                         if (feedAnimal(ownerFarmId)) {
@@ -2098,6 +2101,36 @@ class AntFarm : ModelTask() {
                     } else {
                         Log.farm("投喂小鸡🥣[180g]#投喂成功")
                     }
+
+                    try {
+                        val taskId = "KC|$ownerFarmId"
+                        addChildTask(
+                            ChildModelTask(
+                                id = taskId,
+                                group = "KC",
+                                suspendRunnable = {
+                                    try {
+                                        Log.record(TAG, "🔔 蹲点驱赶小鸡任务触发")
+                                        // 重新进入庄园，获取最新状态
+                                        enterFarm()
+                                        // 同步最新状态
+                                        syncAnimalStatus(ownerFarmId)
+                                        sendBackAnimal()
+                                    } catch (e: Exception) {
+                                        Log.error(TAG, "蹲点驱赶小鸡任务执行失败: ${e.message}")
+                                        Log.printStackTrace(TAG, e)
+                                    }
+                                },
+                                execTime = System.currentTimeMillis() + 30 * 60 * 1000L  //30分钟
+                            )
+                        )
+                        Log.farm(UserMap.getCurrentMaskName() + "30分钟后蹲点赶小鸡")
+                        setAlarm("KC", 29 * 60 * 1000L)
+
+                    } catch (e: Exception) {
+                        Log.printStackTrace(TAG, "创建蹲点赶鸡失败: ${e.message}",e)
+                    }
+
                     return true
                 } else {
                     // 检查特定的错误码
@@ -4181,5 +4214,48 @@ class AntFarm : ModelTask() {
         private const val FARM_ANSWER_CACHE_KEY = "farmAnswerQuestionCache"
         private const val ANSWERED_FLAG = "farmQuestion::answered" // 今日是否已答题
         private const val CACHED_FLAG = "farmQuestion::cache" // 是否已缓存明日答案
+    }
+
+    @SuppressLint("ScheduleExactAlarm")
+    /**
+     * 通用闹钟设置方法
+     * @param type 任务类型，如 "KC" (赶鸡), "AW" (起床), "AS" (睡觉)
+     * @param delayMillis 延迟毫秒数
+     */
+    private fun setAlarm(type: String, delayMillis: Long) {
+        try {
+            val context = fansirsqi.xposed.sesame.SesameApplication.getContext()
+                ?: fansirsqi.xposed.sesame.hook.ApplicationHook.getAppContext()
+                ?: return
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+
+            val intent = android.content.Intent(context, AntFarmReceiver::class.java).apply {
+                action = "ACTION_ALARM_FARM" // 统一使用一个 Action
+                putExtra("type", type)       // 通过 Extra 区分类型
+                putExtra("ownerFarmId", ownerFarmId)
+            }
+
+            // 使用 type 和 ownerFarmId 的组合生成唯一的 requestCode
+            // 这样不同类型的任务（AW, AS, KC）可以同时存在
+            val requestCode = (type + ownerFarmId).hashCode()
+
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val triggerAtMillis = System.currentTimeMillis() + delayMillis
+
+            alarmManager.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
+            Log.record(TAG, "⏰ 已注册系统闹钟[${type}]，将在 ${delayMillis/60000} 分钟后执行")
+        } catch (e: Exception) {
+            Log.error(TAG, "设置闹钟[${type}]失败: ${e.message}")
+        }
     }
 }
