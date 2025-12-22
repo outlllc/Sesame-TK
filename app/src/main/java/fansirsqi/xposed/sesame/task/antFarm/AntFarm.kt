@@ -1981,13 +1981,14 @@ class AntFarm : ModelTask() {
                             // 领取前先同步一次食槽状态，避免边界误差
                             syncAnimalStatus(ownerFarmId)
 
+                            val foodStockAfter = foodStock + awardCount
                             if ("ALLPURPOSE" == task.optString("awardType")) {
                                 // 使用 ">=" 防止刚好到上限时仍然领取导致 331
-                                if (awardCount + foodStock > foodStockLimit) {
+                                if ((foodStock >= foodStockLimit) || ((awardCount + foodStock > foodStockLimit) && !TimeUtil.isNowAfterOrCompareTimeStr("2000")) ) {
                                     unreceiveTaskAward++
                                     Log.record(
                                         TAG,
-                                        taskTitle + "领取" + awardCount + "g饲料后将超过[" + foodStockLimit + "g]上限!终止领取。现有饲料" + foodStock +"g"
+                                        "领取任务：" + taskTitle + " 的 " + awardCount + "g饲料后将超过[" + foodStockLimit + "g]上限!终止领取。现有饲料" + foodStock +"g"
                                     )
                                     isFeedFull = true
                                     break
@@ -1997,9 +1998,13 @@ class AntFarm : ModelTask() {
                                 JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId))
                             if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
                                 add2FoodStock(awardCount)
-                                Log.farm("庄园奖励[" + taskTitle + "]#" + awardCount + "g")
+                                Log.farm("收取庄园任务奖励[" + taskTitle + "]#" + awardCount + "g")
                                 if(foodStock == foodStockLimit){
-                                    Log.farm("领取饲料等于饲料上限" + foodStockLimit + "g，停止后续领取")
+                                    Log.farm("领取饲料[等于]饲料上限" + foodStockLimit + "g，停止后续领取")
+                                    break
+                                }
+                                if(foodStockAfter > foodStockLimit){
+                                    Log.farm("时间超过20点，即使领取后将[超过]饲料上限仍将领取饲料奖励。饲料已到上限" + foodStockLimit + "g，停止后续领取")
                                     break
                                 }
                                 doubleCheck = true
