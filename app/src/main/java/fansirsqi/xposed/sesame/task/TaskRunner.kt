@@ -1,6 +1,7 @@
 package fansirsqi.xposed.sesame.task
 
 import android.annotation.SuppressLint
+import androidx.compose.foundation.gestures.forEach
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.Model
@@ -221,6 +222,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             
             // 取消当前任务的所有协程
             task.stopTask()
+            Log.record(TAG, "❌ 任务[$taskId]执行超时，准备自动恢复")
             
             // 短暂延迟后重新启动任务
             delay(RECOVERY_DELAY) // 等待3秒钟
@@ -541,6 +543,8 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         if (totalTime > 60000) { // 超过1分钟
             Log.runtime(TAG, "⚠️ 执行时间较长，建议检查任务配置或网络状况")
         }
+
+        listScheduledTask()
         
         Log.record(TAG, "================================")
     }
@@ -551,5 +555,31 @@ class CoroutineTaskRunner(allModels: List<Model>) {
     fun stop() {
         runnerScope.cancel()
         Log.record(TAG, "协程任务执行器已停止")
+    }
+
+    fun listScheduledTask(){
+        // 获取等待任务的总数
+        val count = ModelTask.ChildModelTask.getWaitingCount()
+        if (count == 0) return
+        Log.other("定时执行任务总数：${count}个")
+
+        // 打印所有正在等待的任务详情
+        val tasks = ModelTask.ChildModelTask.getWaitingTasks()
+        tasks.forEach { task ->
+            // 匹配 FA| 开头的 ID 并转换
+            val displayName = if (task.id.startsWith("FA|")) {
+                "庄园蹲点喂小鸡"
+            } else if (task.id.startsWith("AW|")) {
+                "小鸡定时起床"
+            }else if (task.id.startsWith("AS|")) {
+                "小鸡定时睡觉"
+            }else if (task.id.startsWith("KC|")) {
+                "小鸡蹲点驱赶偷吃"
+            }
+            else {
+                task.id
+            }
+            Log.other("正在等待的任务: 名称=${displayName}, 计划执行时间=${TimeUtil.getCommonDate(task.execTime)}")
+        }
     }
 }
