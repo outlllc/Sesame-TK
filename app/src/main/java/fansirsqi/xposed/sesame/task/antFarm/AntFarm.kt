@@ -628,6 +628,7 @@ class AntFarm : ModelTask() {
             if (recordFarmGame!!.value) {
                 if (!Status.hasFlagToday("farm::farmGameFinished")) {
                     if (Status.hasFlagToday("farm::accelerateLimit") || !Status.canUseAccelerateTool()) {
+                        syncAnimalStatus(ownerFarmId)
                         if (foodStock > foodStockLimit - 90) {
                             recordFarmGame(GameType.flyGame)
                             recordFarmGame(GameType.hitGame)
