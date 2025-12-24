@@ -603,6 +603,21 @@ class AntFarm : ModelTask() {
             if (hireAnimal!!.value) {
                 hireAnimal()
             }
+
+            // 做饲料任务
+            if (doFarmTask!!.value) {
+                if(!Status.hasFlagToday("farm::farmTaskFinished")) {
+                    // 检查是否到达执行时间
+                    if (TaskTimeChecker.isTimeReached(doFarmTaskTime?.value, "0830")) {
+                        doFarmTasks()
+                        tc.countDebug("饲料任务")
+                        Status.setFlagToday("farm::farmTaskFinished")
+                    } else {
+                        Log.record(TAG, "饲料任务未到执行时间，跳过")
+                    }
+                }
+            }
+
             handleAutoFeedAnimal()
             tc.countDebug("喂食")
 
