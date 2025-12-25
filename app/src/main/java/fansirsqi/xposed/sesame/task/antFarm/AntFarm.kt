@@ -618,6 +618,11 @@ class AntFarm : ModelTask() {
                 }
             }
 
+            if (sendBackAnimal!!.value) {
+                sendBackAnimal()
+                tc.countDebug("遣返")
+            }
+
             handleAutoFeedAnimal()
             tc.countDebug("喂食")
 
@@ -630,10 +635,6 @@ class AntFarm : ModelTask() {
             if (rewardFriend!!.value) {
                 rewardFriend()
                 tc.countDebug("打赏好友")
-            }
-            if (sendBackAnimal!!.value) {
-                sendBackAnimal()
-                tc.countDebug("遣返")
             }
 
             if (receiveFarmToolReward!!.value) {
