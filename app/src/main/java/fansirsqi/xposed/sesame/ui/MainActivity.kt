@@ -4,7 +4,9 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.os.FileObserver
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
@@ -77,14 +79,20 @@ import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.PermissionUtil
 import fansirsqi.xposed.sesame.util.ToastUtil
+import fansirsqi.xposed.sesame.util.maps.UserMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuProvider
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : BaseActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var watermarkView: WatermarkView
+
+    private var animalStatusObserver: FileObserver? = null
 
     // Shizuku 监听器
     private val shizukuListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
@@ -106,6 +114,11 @@ class MainActivity : BaseActivity() {
         setupShizuku()
 
         // 3. 同步图标状态
+
+        if (hasPermissions) {
+            startObservingAnimalStatus()
+        }
+
         val prefs = getSharedPreferences(preferencesKey, MODE_PRIVATE)
         IconManager.syncIconState(this, prefs.getBoolean("is_icon_hidden", false))
 
@@ -172,7 +185,10 @@ class MainActivity : BaseActivity() {
             MainUiEvent.OpenFarmLog -> openLogFile(Files.getFarmLogFile())
             MainUiEvent.OpenOtherLog -> openLogFile(Files.getOtherLogFile())
             MainUiEvent.OpenGithub -> openUrl("https://github.com/Fansirsqi/Sesame-TK")
-            MainUiEvent.OpenErrorLog -> executeWithVerification { openLogFile(Files.getErrorLogFile()) }
+            MainUiEvent.OpenErrorLog -> openLogFile(Files.getErrorLogFile())
+            MainUiEvent.AnimanStatus -> {
+                if (hasPermissions) startObservingAnimalStatus()
+            }
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenSettings -> {
                 showUserSelectionDialog(userList) { selectedUser ->
@@ -217,11 +233,16 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (hasPermissions) viewModel.reloadUserConfigs()
+        if (hasPermissions) {
+            startObservingAnimalStatus()
+            viewModel.reloadUserConfigs()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        animalStatusObserver?.stopWatching()
+        animalStatusObserver = null
         Shizuku.removeRequestPermissionResultListener(shizukuListener)
     }
 
@@ -436,8 +457,7 @@ fun MainScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
-                            .clickable { onEvent(MainActivity.MainUiEvent.RefreshOneWord) }
-                            .padding(8.dp)
+                            .clickable { onEvent(MainActivity.MainUiEvent.AnimanStatus) }
                     )
                 }
 
@@ -536,6 +556,82 @@ fun MenuButton(
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1
             )
+        }
+    }
+
+    /**
+     * 核心逻辑：启动文件监听并更新 TextView*/
+    private fun startObservingAnimalStatus() {
+        val logFile = Files.getAnimalStausLogFile() ?: return
+
+        // 1. 如果监听器已存在，直接刷新内容并返回
+        if (animalStatusObserver != null) {
+            refreshAnimalStatusText()
+            return
+        }
+
+        // 2. 初始加载显示
+        refreshAnimalStatusText()
+
+        // 3. 设置 FileObserver (增强监听范围)
+        val parentDir = logFile.parentFile ?: return
+
+        // 监听 修改、关闭并写入、创建、移动
+        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
+
+        animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            object : FileObserver(parentDir, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    // 当目录下的文件变动且文件名匹配时刷新
+                    if (path == logFile.name) {
+                        refreshAnimalStatusText()
+                    }
+                }
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            object : FileObserver(logFile.absolutePath, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    refreshAnimalStatusText()
+                }
+            }
+        }
+
+        // 启动监听
+        animalStatusObserver?.startWatching()
+    }
+
+    /**
+     * 独立刷新方法：读取文件并根据 TextView 最大行数截取显示
+     */
+    private fun refreshAnimalStatusText() {
+        val logFile = Files.getAnimalStausLogFile() ?: return
+
+        // 使用 lifecycleScope 确保 Activity 活跃时才执行
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val content = Files.readFromFile(logFile)
+                withContext(Dispatchers.Main) {
+                    // 1. 按行切分并过滤掉空行
+                    val allLines = content.lines().filter { it.isNotBlank() }
+
+                    // 2. 动态获取 TextView 的最大行数限制
+                    val limit = oneWord.maxLines
+
+                    // 3. 截取最后 N 行（最新的在下方）
+                    val displayLines = if (limit > 0 && limit < Int.MAX_VALUE) {
+                        allLines.takeLast(limit)
+                    } else {
+                        allLines
+                    }
+
+                    // 4. 更新 UI
+                    val finalContent = displayLines.joinToString("\n")
+                    oneWord.text = finalContent.ifEmpty { "暂无动物状态日志" }
+                }
+            } catch (e: Exception) {
+                Log.error(TAG, "刷新动物状态文字失败: ${e.message}")
+            }
         }
     }
 }

@@ -393,6 +393,10 @@ public class Files {
         return ensureLogFile(getLogFile("record"));
     }
 
+    public static File getAnimalStausLogFile() {
+        return ensureLogFile(getLogFile("animal_status"));
+    }
+
     public static File getDebugLogFile() {
         return ensureLogFile(getLogFile("debug"));
     }

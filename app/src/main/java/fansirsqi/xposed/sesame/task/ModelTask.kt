@@ -397,7 +397,9 @@ abstract class ModelTask : Model() {
         val id: String,
         val group: String = "DEFAULT",
         private val suspendRunnable: (suspend () -> Unit)? = null,
-        val execTime: Long = 0L
+        val execTime: Long = 0L,
+        // 新增：任务结束时的回调（isSuccess 代表是否正常执行完）
+        var onCompleted: ((isSuccess: Boolean) -> Unit)? = null
     ) {
         @Setter
         var modelTask: ModelTask? = null
@@ -455,6 +457,7 @@ abstract class ModelTask : Model() {
          */
         suspend fun run() {
             if (isCancelled) return
+            var isSuccess = false
             
             // 如果有延迟执行时间，先等待
             val delayTime = execTime - System.currentTimeMillis()
@@ -481,6 +484,8 @@ abstract class ModelTask : Model() {
 
                 // 执行任务逻辑
                 suspendRunnable?.invoke() ?: defaultRun()
+                isSuccess = true // 标记为成功执行
+
 
             } catch (_: CancellationException) {
                 // 任务被取消是正常的协程控制流程，记录日志但不需要打印堆栈
@@ -504,6 +509,8 @@ abstract class ModelTask : Model() {
             } finally {
                 // 【关键】确保无论发生什么情况，只要加了计数就必须减掉
                 if (isCounted) {
+                    // 执行完成回调
+                    onCompleted?.invoke(isSuccess && !isCancelled)
                     waitingCount.decrementAndGet()
                     waitingTasks.remove(id, this)
                     Log.other("finally 移除delay任务成功: $id")

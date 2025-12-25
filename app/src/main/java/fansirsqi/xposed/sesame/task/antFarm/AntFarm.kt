@@ -1017,36 +1017,66 @@ class AntFarm : ModelTask() {
             val sleepTaskId = "AS|$animalSleepTime"
             val wakeUpTaskId = "AW|$animalWakeUpTime"
             if (!hasChildTask(sleepTaskId) && !afterSleepTime) {
-                addChildTask(
-                    ChildModelTask(
-                        sleepTaskId,
-                        "AS",
-                        suspendRunnable = { this.animalSleepNow() },
-                        animalSleepTime
-                    )
+                val maskName = UserMap.getCurrentMaskName()
+                val logIdentifier = "${maskName}小鸡睡觉计划"
+                val task = ChildModelTask(
+                    sleepTaskId,
+                    "AS",
+                    suspendRunnable = { this.animalSleepNow() },
+                    animalSleepTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已执行", 1)
+                    } else {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
                     "添加定时睡觉🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
                         animalSleepTime
                     ) + "]执行"
                 )
+                Log.animalStatus("${logIdentifier}[${
+                    TimeUtil.getCommonDate(animalSleepTime)}]",24)
+            } else if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus){
+                Log.animalStatus("${TimeUtil.getCommonDate(System.currentTimeMillis())}小鸡正在睡觉","10")
             }
             if (!hasChildTask(wakeUpTaskId) && !afterWakeUpTime) {
-                addChildTask(
-                    ChildModelTask(
-                        wakeUpTaskId,
-                        "AW",
-                        suspendRunnable = { this.animalWakeUpNow() },
-                        animalWakeUpTime
-                    )
+                val maskName = UserMap.getCurrentMaskName()
+                val logIdentifier = "${maskName}小鸡起床计划"
+                val task = ChildModelTask(
+                    wakeUpTaskId,
+                    "AW",
+                    suspendRunnable = { this.animalWakeUpNow() },
+                    animalWakeUpTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        }] 已执行", 1)
+                    } else {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        }] 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
                     "添加定时起床🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
                         animalWakeUpTime
                     ) + "]执行"
                 )
+                Log.animalStatus("${logIdentifier}[${
+                    TimeUtil.getCommonDate(animalWakeUpTime)}]",24)
             }
             if (afterSleepTime) {
                 if (Status.canAnimalSleep()) {
@@ -1226,33 +1256,42 @@ class AntFarm : ModelTask() {
                                     ", 执行时间=" + TimeUtil.getCommonDate(nextFeedTime) + "]"
                         )
                         val taskId = "FA|$ownerFarmId"
-                        addChildTask(
-                            ChildModelTask(
-                                id = taskId,
-                                group = "FA",
-                                suspendRunnable = {
-                                    try {
-                                        Log.record(TAG, "🔔 蹲点投喂任务触发")
-                                        // 重新进入庄园，获取最新状态
-                                        enterFarm()
-                                        // 同步最新状态
-                                        syncAnimalStatus(ownerFarmId)
-                                        handleAutoFeedAnimal()
-                                        Log.record(TAG, "🔄 下一次蹲点任务已创建")
-                                    } catch (e: Exception) {
-                                        Log.error(TAG, "蹲点投喂任务执行失败: ${e.message}")
-                                        Log.printStackTrace(TAG, e)
-                                    }
-                                },
-                                execTime = nextFeedTime
-                            )
+                        val maskName = UserMap.getCurrentMaskName()
+                        val logIdentifier = "${maskName}蹲点喂鸡计划"
+                        val task = ChildModelTask(
+                            id = taskId,
+                            group = "FA",
+                            suspendRunnable = {
+                                try {
+                                    Log.record(TAG, "🔔 蹲点投喂任务触发")
+                                    // 重新进入庄园，获取最新状态
+                                    enterFarm()
+                                    // 同步最新状态
+                                    syncAnimalStatus(ownerFarmId)
+                                    handleAutoFeedAnimal()
+                                    Log.record(TAG, "🔄 下一次蹲点任务已创建")
+                                } catch (e: Exception) {
+                                    Log.error(TAG, "蹲点投喂任务执行失败: ${e.message}")
+                                    Log.printStackTrace(TAG, e)
+                                }
+                            },
+                            execTime = nextFeedTime
                         )
+                        task.onCompleted = { success ->
+                            if (success) {
+                                Log.animalStatus("$logIdentifier[${TimeUtil.getCommonDate(nextFeedTime)}] 已执行", 1)
+                            } else {
+                                Log.animalStatus("${logIdentifier}[${TimeUtil.getCommonDate(nextFeedTime)}] 已取消", 1)
+                            }
+                        }
+                        addChildTask(task)
                         Log.record(
                             TAG,
                             "添加蹲点投喂🥣[" + UserMap.getCurrentMaskName() + "]在[" +
                                     TimeUtil.getCommonDate(nextFeedTime) + "]执行"
                         )
-                        Log.farm(UserMap.getCurrentMaskName() + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
+                        Log.farm(maskName + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
+                        Log.animalStatus("${logIdentifier}[${TimeUtil.getCommonDate(nextFeedTime)}]",10)
 //                        setAlarm("FA", (remainingSec * 1000).toLong())
                     } else {
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
@@ -2135,27 +2174,41 @@ class AntFarm : ModelTask() {
 
                     try {
                         val taskId = "KC|$ownerFarmId"
-                        addChildTask(
-                            ChildModelTask(
-                                id = taskId,
-                                group = "KC",
-                                suspendRunnable = {
-                                    try {
-                                        Log.record(TAG, "🔔 蹲点驱赶小鸡任务触发")
-                                        // 重新进入庄园，获取最新状态
-                                        enterFarm()
-                                        // 同步最新状态
-                                        syncAnimalStatus(ownerFarmId)
-                                        sendBackAnimal()
-                                    } catch (e: Exception) {
-                                        Log.error(TAG, "蹲点驱赶小鸡任务执行失败: ${e.message}")
-                                        Log.printStackTrace(TAG, e)
-                                    }
-                                },
-                                execTime = System.currentTimeMillis() + 30 * 60 * 1000L  //30分钟
-                            )
+                        val maskName = UserMap.getCurrentMaskName()
+                        val logIdentifier = "${maskName}蹲点赶鸡计划"
+                        val KcTime = TimeUtil.getCommonDate(System.currentTimeMillis() + 30 * 60 * 1000L)
+                        val task = ChildModelTask(
+                            id = taskId,
+                            group = "KC",
+                            suspendRunnable = {
+                                try {
+                                    Log.record(TAG, "🔔 蹲点赶鸡任务触发")
+                                    // 重新进入庄园，获取最新状态
+                                    enterFarm()
+                                    // 同步最新状态
+                                    syncAnimalStatus(ownerFarmId)
+                                    sendBackAnimal()
+                                } catch (e: Exception) {
+                                    Log.error(TAG, "蹲点赶鸡任务执行失败: ${e.message}")
+                                    Log.printStackTrace(TAG, e)
+                                }
+                            },
+                            execTime = System.currentTimeMillis() + 30 * 60 * 1000L  //30分钟
                         )
-//                        Log.farm(UserMap.getCurrentMaskName() + "30分钟后蹲点赶小鸡")
+                        // 设置完成回调
+                        task.onCompleted = { success ->
+                            if (success) {
+                                Log.animalStatus("$logIdentifier[${KcTime}] 已执行", 1)
+                            } else {
+                                // 如果任务被取消或报错
+                                Log.animalStatus("$logIdentifier[${KcTime}] 已取消", 1)
+                            }
+                        }
+                        addChildTask(task)
+
+
+                        Log.farm(UserMap.getCurrentMaskName() + "30分钟后${KcTime}蹲点赶小鸡")
+                        Log.animalStatus("${logIdentifier}[${KcTime}]执行",1)
 //                        setAlarm("KC", 29 * 60 * 1000L)
 
                     } catch (e: Exception) {
