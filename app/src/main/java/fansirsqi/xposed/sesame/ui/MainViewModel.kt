@@ -144,16 +144,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 //    }
 
     fun loadAnimalStatus() {
-        viewModelScope.launch() {
-            try {val logFile = Files.getAnimalStausLogFile()
-                _animalStatus.value = "日志文件debug"
-                if (logFile != null && logFile.exists()) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val logFile = Files.getAnimalStausLogFile()
+                val result = if (logFile != null && logFile.exists()) {
                     val content = Files.readFromFile(logFile)
-                    val displayLines = content.lines().filter { it.isNotBlank() }.takeLast(8)
-                    _animalStatus.value = displayLines.joinToString("\n").ifEmpty { "日志文件为空" }
+                    content.lines().filter { it.isNotBlank() }
+                        .takeLast(8)
+                        .joinToString("\n")
+                        .ifEmpty { "日志文件为空" }
                 } else {
-                    _animalStatus.value = "日志文件不存在"
+                    "日志文件不存在"
                 }
+                _animalStatus.value = result
             } catch (e: Exception) {
                 _animalStatus.value = "加载失败: ${e.localizedMessage}"
             }

@@ -344,25 +344,21 @@ class MainActivity : BaseActivity() {
     fun startObservingAnimalStatus() {
         val logFile = Files.getAnimalStausLogFile() ?: return
 
-        viewModel.loadAnimalStatus()
+        // 如果已经有观察者了，直接触发一次加载即可，不要重复创建观察者
         if (animalStatusObserver != null) {
-            refreshAnimalStatusText()
+            viewModel.loadAnimalStatus()
             return
         }
 
-        // 2. 初始加载显示
-        refreshAnimalStatusText()
+        // 初始加载
+        viewModel.loadAnimalStatus()
 
-        // 3. 设置 FileObserver (增强监听范围)
         val parentDir = logFile.parentFile ?: return
-
-        // 监听 修改、关闭并写入、创建、移动
-        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
+        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE
 
         animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             object : FileObserver(parentDir, mask) {
                 override fun onEvent(event: Int, path: String?) {
-                    // 当目录下的文件变动且文件名匹配时刷新
                     if (path == logFile.name) {
                         viewModel.loadAnimalStatus()
                     }
@@ -376,54 +372,7 @@ class MainActivity : BaseActivity() {
                 }
             }
         }
-        // 启动监听
         animalStatusObserver?.startWatching()
-    }
-
-    /**
-     * 独立刷新方法：读取文件并根据 TextView 最大行数截取显示
-     */
-    private fun refreshAnimalStatusText() {
-        // 1. 立即在主线程更新一个中间状态，证明方法确实被触发了
-        viewModel.loadAnimalStatus()
-
-        val logFile = Files.getAnimalStausLogFile() ?: run {
-            viewModel.loadAnimalStatus()
-            return
-        }
-
-        // 改用 viewModelScope 或 Dispatchers.Main 启动，确保任务一定会被提交
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                if (!logFile.exists()) {
-                    withContext(Dispatchers.Main) {
-                        viewModel.loadAnimalStatus()
-                    }
-                    return@launch
-                }
-
-                // 读取内容
-                val content = Files.readFromFile(logFile)
-
-                withContext(Dispatchers.Main) {
-                    if (content.isEmpty()) {
-                        viewModel.loadAnimalStatus()
-                    } else {
-                        val allLines = content.lines().filter { it.isNotBlank() }
-                        val displayLines = allLines.takeLast(8)
-                        val finalContent = displayLines.joinToString("\n")
-
-                        // 🔥 增加一个时间戳后缀，强制 StateFlow 认为值已改变，触发重绘
-                        viewModel.loadAnimalStatus()
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    // 如果是这里报错，现在你能看到了
-                    viewModel.loadAnimalStatus()
-                }
-            }
-        }
     }
 }
 
