@@ -650,8 +650,11 @@ class AntFarm : ModelTask() {
                 if (!Status.hasFlagToday("farm::farmGameFinished")) {
                     if (Status.hasFlagToday("farm::accelerateLimit") || !Status.canUseAccelerateTool()) {
                         syncAnimalStatus(ownerFarmId)
-                        // 180,暂时修改为360以观察飞行和打小鸡能否得到360g能量
-                        if (foodStock >= foodStockLimit - 360) {
+                        /* 180,暂时修改为360以观察飞行和打小鸡能否得到360g能量
+                         update:经过测试，飞行可以每局随机得到 106 - 115 - 147g等饲料，但是揍小鸡不获得饲料，因此总可以得饲料200+g饲料，不足连续加速最高360g饲料缺口
+                         因此不能使用360g的参数，改回180g
+                         */
+                        if (foodStock >= foodStockLimit - 180) {
                             recordFarmGame(GameType.flyGame)
                             recordFarmGame(GameType.hitGame)
                             recordFarmGame(GameType.starGame)
@@ -2323,15 +2326,19 @@ class AntFarm : ModelTask() {
             因此对于不足一个小时/指定大于剩余时间的加速应该理解为剩余饲料大于这个指定时间的自己小鸡的食物消耗量，
             这种情况下即使有多只偷吃小鸡时也可以正确的把加速卡连续使用光。
          */
+        // 1. 定义一个用于记录退出原因的变量
+        var exitReason = "CONDITION_NOT_MET"
         while (remainingFood >= remainingTimeValue / 60.0 * foodConsumePerHour ) {
             // 检查本地计数器上限，防止无限使用
             if (!Status.canUseAccelerateTool()) {
                 Log.record(TAG, "加速卡内部⏩已达到本地使用上限(8次)，停止使用")
                 Status.setFlagToday("farm::accelerateLimit")
+                exitReason = "REACHED_LIMIT"
                 break
             }
             // 可选条件：若勾选“仅心情满值时加速”，且当前心情不为 100，则跳出
             if ((useAccelerateToolWhenMaxEmotion!!.value && finalScore != 100.0)) {
+                exitReason = "EMOTION_NOT_MAX"
                 break
             }
             if (useFarmTool(ownerFarmId, ToolType.ACCELERATETOOL)) {
@@ -2344,7 +2351,7 @@ class AntFarm : ModelTask() {
                 val timeLeft = remainingFood / totalConsumeSpeed
                 if (timeLeft >= 0.0){
                     Log.farm("使用了1张加速卡⏩ 预估剩余时间: ${(timeLeft/60).toInt()} 分钟")
-                    Log.farm("今日已使用${Status().useAccelerateToolCount}张加速卡")
+                    Log.farm("今日已使用${Status.INSTANCE.useAccelerateToolCount}张加速卡")
                     delay(1000)
                 } else{
                     // 如果加速后吃完了，尝试补喂并刷新倒计时
@@ -2358,8 +2365,7 @@ class AntFarm : ModelTask() {
 //                            totalFoodHaveEatten = 0.0
                             Log.farm("加速卡后投喂小鸡成功！")
                             if (!Status.hasFlagToday("farm::farmGameFinished")){
-                                // 测试飞行和打小鸡能否得到360g能量
-                                if (foodStock < foodStockLimit - 360) {
+                                if (foodStock < foodStockLimit - 180) {
                                     Log.farm("加速后已喂食，领取饲料奖励")
                                     receiveFarmAwards()
                                 } else {
@@ -2380,14 +2386,18 @@ class AntFarm : ModelTask() {
                 }
             } else {
                 Log.record(TAG, "加速卡内部⏩useFarmTool 返回失败，终止循环")
+                exitReason = "TOOL_USE_FAILED"
                 break
             }
             // 若未开启“连续使用”，只使用 1 次后退出
             if (!useAccelerateToolContinue!!.value) {
+                exitReason = "SINGLE_USE_MODE"
                 break
             }
         }
-        Log.farm("剩余可加速的时间少于${remainingTimeValue}分钟")
+        if (exitReason == "CONDITION_NOT_MET") {
+            Log.farm("剩余可加速的时间少于设置的${remainingTimeValue}分钟，将在下次喂食后再次使用加速卡")
+        }
         Log.record(TAG, "加速卡内部⏩最终 isUseAccelerateTool=$isUseAccelerateTool")
         return isUseAccelerateTool
     }
