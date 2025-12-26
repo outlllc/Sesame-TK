@@ -738,12 +738,12 @@ public class ApplicationHook {
                                         reLogin();
                                         return;
                                     }
-                                    currentAdapter = new TaskRunnerAdapter();
                                     lastExecTime = currentTime; // 更新最后执行时间
+                                    currentAdapter = new TaskRunnerAdapter();
                                     currentAdapter.run();
                                     // 方式1：直接使用数组转换
-                                    TaskRunnerAdapter adapter = new TaskRunnerAdapter();
-                                    adapter.run();
+//                                    TaskRunnerAdapter adapter = new TaskRunnerAdapter();
+//                                    adapter.run();
                                     scheduleNextExecutionInternal(lastExecTime);
                                 } catch (IllegalStateException e) {
                                     Log.record(TAG, "⚠️ " + e.getMessage());
