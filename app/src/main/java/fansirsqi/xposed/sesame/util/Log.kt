@@ -268,7 +268,7 @@ object Log {
         record(msg)
 
         try {
-            val logFile = Files.getAnimalStausLogFile()
+            val logFile = Files.getAnimalStatusLogFile()
 
             // 1. 读取当前文件所有行
             val content = Files.readFromFile(logFile)
@@ -367,7 +367,7 @@ object Log {
     @Synchronized
     fun removeAnimalStatus(identifier: String) {
         try {
-            val logFile = Files.getAnimalStausLogFile()
+            val logFile = Files.getAnimalStatusLogFile()
             val content = Files.readFromFile(logFile)
             val lines: MutableList<String?> = ArrayList<String?>()
             var changed = false

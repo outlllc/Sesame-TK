@@ -393,7 +393,7 @@ public class Files {
         return ensureLogFile(getLogFile("record"));
     }
 
-    public static File getAnimalStausLogFile() {
+    public static File getAnimalStatusLogFile() {
         return ensureLogFile(getLogFile("animal_status"));
     }
 

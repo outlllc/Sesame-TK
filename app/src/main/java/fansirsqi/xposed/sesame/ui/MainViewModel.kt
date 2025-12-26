@@ -146,7 +146,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadAnimalStatus() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val logFile = Files.getAnimalStausLogFile()
+                val logFile = Files.getAnimalStatusLogFile()
                 val result = if (logFile != null && logFile.exists()) {
                     val content = Files.readFromFile(logFile)
                     content.lines().filter { it.isNotBlank() }

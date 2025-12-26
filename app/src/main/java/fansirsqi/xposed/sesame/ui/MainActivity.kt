@@ -62,7 +62,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.SesameApplication.Companion.hasPermissions
@@ -80,11 +79,8 @@ import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.PermissionUtil
 import fansirsqi.xposed.sesame.util.ToastUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuProvider
-import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : BaseActivity() {
@@ -106,8 +102,14 @@ class MainActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
 
         // 1. 检查权限并初始化逻辑
-        if (PermissionUtil.checkOrRequestFilePermissions(this)) {
+//        if (PermissionUtil.checkOrRequestFilePermissions(this)) {
+//            viewModel.initAppLogic()
+//        }
+        hasPermissions = PermissionUtil.checkFilePermissions(this)
+        if (hasPermissions) {
             viewModel.initAppLogic()
+        } else {
+            PermissionUtil.checkOrRequestFilePermissions(this)
         }
 
         // 2. 初始化 Shizuku
@@ -116,6 +118,7 @@ class MainActivity : BaseActivity() {
         // 3. 同步图标状态
 
         if (hasPermissions) {
+            viewModel.loadAnimalStatus()
             startObservingAnimalStatus()
         }
 
@@ -123,7 +126,7 @@ class MainActivity : BaseActivity() {
         IconManager.syncIconState(this, prefs.getBoolean("is_icon_hidden", false))
 
         // 4. 安装水印 (这是一个 View，挂载到 Window 上，不影响 Compose)
-        watermarkView = WatermarkView.install(this)
+//        watermarkView = WatermarkView.install(this)
         viewModel.loadAnimalStatus()
         startObservingAnimalStatus()
 
@@ -252,10 +255,12 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        hasPermissions = PermissionUtil.checkFilePermissions(this)
         if (hasPermissions) {
             viewModel.loadAnimalStatus()
             startObservingAnimalStatus()
             viewModel.reloadUserConfigs()
+
         }
     }
 
@@ -342,7 +347,7 @@ class MainActivity : BaseActivity() {
     /**
      * 核心逻辑：启动文件监听并更新 TextView*/
     fun startObservingAnimalStatus() {
-        val logFile = Files.getAnimalStausLogFile() ?: return
+        val logFile = Files.getAnimalStatusLogFile() ?: return
 
         // 如果已经有观察者了，直接触发一次加载即可，不要重复创建观察者
         if (animalStatusObserver != null) {
