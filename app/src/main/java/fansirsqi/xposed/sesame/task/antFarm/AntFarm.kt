@@ -649,7 +649,8 @@ class AntFarm : ModelTask() {
                 if (!Status.hasFlagToday("farm::farmGameFinished")) {
                     if (Status.hasFlagToday("farm::accelerateLimit") || !Status.canUseAccelerateTool()) {
                         syncAnimalStatus(ownerFarmId)
-                        if (foodStock >= foodStockLimit - 180) {
+                        // 180,暂时修改为360以观察飞行和打小鸡能否得到360g能量
+                        if (foodStock >= foodStockLimit - 360) {
                             recordFarmGame(GameType.flyGame)
                             recordFarmGame(GameType.hitGame)
                             recordFarmGame(GameType.starGame)
@@ -2341,7 +2342,8 @@ class AntFarm : ModelTask() {
                 Status.useAccelerateTool()
                 val timeLeft = remainingFood / totalConsumeSpeed
                 if (timeLeft >= 0.0){
-                    Log.farm("使用加速卡⏩ 预估剩余时间: ${(timeLeft/60).toInt()} 分钟")
+                    Log.farm("使用了1张加速卡⏩ 预估剩余时间: ${(timeLeft/60).toInt()} 分钟")
+                    Log.farm("今日已使用${Status().useAccelerateToolCount}张加速卡")
                     delay(1000)
                 } else{
                     // 如果加速后吃完了，尝试补喂并刷新倒计时
@@ -2355,11 +2357,12 @@ class AntFarm : ModelTask() {
 //                            totalFoodHaveEatten = 0.0
                             Log.farm("加速卡后投喂小鸡成功！")
                             if (!Status.hasFlagToday("farm::farmGameFinished")){
-                                if (foodStock < foodStockLimit - 180) {
+                                // 测试飞行和打小鸡能否得到360g能量
+                                if (foodStock < foodStockLimit - 360) {
                                     Log.farm("加速后已喂食，领取饲料奖励")
                                     receiveFarmAwards()
                                 } else {
-                                    Log.farm("今天游戏改分还没有完成，预留180g的饲料剩余空间，目前饲料${foodStock}g，还差${foodStockLimit - foodStock}g满饲料")
+                                    Log.farm("今天游戏改分还没有完成，预留360g的饲料剩余空间，目前饲料${foodStock}g，还差${foodStockLimit - foodStock}g满饲料")
                                 }
                             } else {
                                 Log.farm("加速后已喂食，领取饲料奖励")
