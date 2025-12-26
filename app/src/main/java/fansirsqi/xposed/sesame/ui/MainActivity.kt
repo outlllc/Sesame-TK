@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.SesameApplication.Companion.hasPermissions
@@ -79,7 +80,6 @@ import fansirsqi.xposed.sesame.util.Files
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.PermissionUtil
 import fansirsqi.xposed.sesame.util.ToastUtil
-import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
@@ -124,6 +124,8 @@ class MainActivity : BaseActivity() {
 
         // 4. 安装水印 (这是一个 View，挂载到 Window 上，不影响 Compose)
         watermarkView = WatermarkView.install(this)
+        viewModel.loadAnimalStatus()
+        startObservingAnimalStatus()
 
         // 5. 设置 Compose 内容 (替代 setContentView)
         setContent {
@@ -138,13 +140,16 @@ class MainActivity : BaseActivity() {
 
             MaterialTheme(colorScheme = colorScheme) {
                 // 收集 ViewModel 状态
-                val oneWord by viewModel.oneWord.collectAsStateWithLifecycle()
+//                val oneWord by viewModel.oneWord.collectAsStateWithLifecycle()
                 val runType by viewModel.runType.collectAsStateWithLifecycle()
                 val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
                 val userList by viewModel.userList.collectAsStateWithLifecycle()
+                val animalStatus by viewModel.animalStatus.collectAsStateWithLifecycle()
+
 
                 MainScreen(
-                    oneWord = oneWord,
+//                    oneWord = oneWord,
+                    animalStatus = animalStatus,
                     runType = runType,
                     activeUserName = activeUser?.showName ?: "未载入^o^ 重启支付宝看看👀",
                     onEvent = { event -> handleEvent(event, userList) } // 处理点击事件
@@ -152,14 +157,14 @@ class MainActivity : BaseActivity() {
             }
         }
 
-        WatermarkView.install(activity = this)
+//        WatermarkView.install(activity = this)
     }
 
     /**
      * 定义 UI 事件，解耦逻辑
      */
     sealed class MainUiEvent {
-        data object RefreshOneWord : MainUiEvent()
+//        data object RefreshOneWord : MainUiEvent()
         data object OpenForestLog : MainUiEvent()
         data object OpenFarmLog : MainUiEvent()
         data object OpenGithub : MainUiEvent()
@@ -167,6 +172,9 @@ class MainActivity : BaseActivity() {
         data object OpenOtherLog : MainUiEvent()
         data object OpenAllLog : MainUiEvent()
         data object OpenSettings : MainUiEvent()
+        data object ManualRun : MainUiEvent()
+        data object ManualStop : MainUiEvent()
+        data object AnimanStatus : MainUiEvent()
 
         // 🔥 新增菜单相关事件
         data class ToggleIconHidden(val isHidden: Boolean) : MainUiEvent()
@@ -180,7 +188,7 @@ class MainActivity : BaseActivity() {
      */
     private fun handleEvent(event: MainUiEvent, userList: List<fansirsqi.xposed.sesame.entity.UserEntity>) {
         when (event) {
-            MainUiEvent.RefreshOneWord -> viewModel.fetchOneWord()
+//            MainUiEvent.RefreshOneWord -> {viewModel.fetchOneWord()}
             MainUiEvent.OpenForestLog -> openLogFile(Files.getForestLogFile())
             MainUiEvent.OpenFarmLog -> openLogFile(Files.getFarmLogFile())
             MainUiEvent.OpenOtherLog -> openLogFile(Files.getOtherLogFile())
@@ -197,7 +205,8 @@ class MainActivity : BaseActivity() {
                 Toast.makeText(this, "🛑 已发送打断指令", Toast.LENGTH_SHORT).show()
             }
             MainUiEvent.AnimanStatus -> {
-                if (hasPermissions) startObservingAnimalStatus()
+                viewModel.loadAnimalStatus()
+                startObservingAnimalStatus()
             }
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenSettings -> {
@@ -244,6 +253,7 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         if (hasPermissions) {
+            viewModel.loadAnimalStatus()
             startObservingAnimalStatus()
             viewModel.reloadUserConfigs()
         }
@@ -328,6 +338,93 @@ class MainActivity : BaseActivity() {
         }
         return super.onOptionsItemSelected(item)
     }
+
+    /**
+     * 核心逻辑：启动文件监听并更新 TextView*/
+    fun startObservingAnimalStatus() {
+        val logFile = Files.getAnimalStausLogFile() ?: return
+
+        viewModel.loadAnimalStatus()
+        if (animalStatusObserver != null) {
+            refreshAnimalStatusText()
+            return
+        }
+
+        // 2. 初始加载显示
+        refreshAnimalStatusText()
+
+        // 3. 设置 FileObserver (增强监听范围)
+        val parentDir = logFile.parentFile ?: return
+
+        // 监听 修改、关闭并写入、创建、移动
+        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
+
+        animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            object : FileObserver(parentDir, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    // 当目录下的文件变动且文件名匹配时刷新
+                    if (path == logFile.name) {
+                        viewModel.loadAnimalStatus()
+                    }
+                }
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            object : FileObserver(logFile.absolutePath, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    viewModel.loadAnimalStatus()
+                }
+            }
+        }
+        // 启动监听
+        animalStatusObserver?.startWatching()
+    }
+
+    /**
+     * 独立刷新方法：读取文件并根据 TextView 最大行数截取显示
+     */
+    private fun refreshAnimalStatusText() {
+        // 1. 立即在主线程更新一个中间状态，证明方法确实被触发了
+        viewModel.loadAnimalStatus()
+
+        val logFile = Files.getAnimalStausLogFile() ?: run {
+            viewModel.loadAnimalStatus()
+            return
+        }
+
+        // 改用 viewModelScope 或 Dispatchers.Main 启动，确保任务一定会被提交
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                if (!logFile.exists()) {
+                    withContext(Dispatchers.Main) {
+                        viewModel.loadAnimalStatus()
+                    }
+                    return@launch
+                }
+
+                // 读取内容
+                val content = Files.readFromFile(logFile)
+
+                withContext(Dispatchers.Main) {
+                    if (content.isEmpty()) {
+                        viewModel.loadAnimalStatus()
+                    } else {
+                        val allLines = content.lines().filter { it.isNotBlank() }
+                        val displayLines = allLines.takeLast(8)
+                        val finalContent = displayLines.joinToString("\n")
+
+                        // 🔥 增加一个时间戳后缀，强制 StateFlow 认为值已改变，触发重绘
+                        viewModel.loadAnimalStatus()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    // 如果是这里报错，现在你能看到了
+                    viewModel.loadAnimalStatus()
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -337,7 +434,8 @@ class MainActivity : BaseActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    oneWord: String,
+//    oneWord: String,
+    animalStatus: String,
     runType: RunType,
     activeUserName: String,
     onEvent: (MainActivity.MainUiEvent) -> Unit
@@ -463,11 +561,13 @@ fun MainScreen(
                     Spacer(modifier = Modifier.height(32.dp))
 
                     Text(
-                        text = "animal status",
+                        text = animalStatus,
                         style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
+                        textAlign = TextAlign.Start,
                         modifier = Modifier
+                            .fillMaxWidth()
                             .clickable { onEvent(MainActivity.MainUiEvent.AnimanStatus) }
+                            .padding(8.dp)
                     )
 
 
@@ -479,24 +579,22 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        Text = "手动开始",
+                        text = "手动开始",
+                        color = Color(0xFF4CAF50),
                         modifier = Modifier
                             .clickable {
-                                val intent = Intent("com.eg.android.AlipayGphone.sesame.execute")
-                                intent.putExtra("manual_trigger", true) // 增加此标记
-                                sendBroadcast(intent)
+                                onEvent(MainActivity.MainUiEvent.ManualRun)
                             }
-                            .padding(8.dp)
+                            .padding(16.dp)
                     )
                     Text(
-                        Text = "手动停止",
+                        text = "手动停止",
+                        color = Color(0xFFF44336),
                         modifier = Modifier
                             .clickable {
-                                val stopIntent = Intent("com.eg.android.AlipayGphone.sesame.stop")
-                                sendBroadcast(stopIntent)
-                                Toast.makeText(this, "🛑 已发送打断指令", Toast.LENGTH_SHORT).show()
+                                onEvent(MainActivity.MainUiEvent.ManualStop)
                             }
-                            .padding(8.dp)
+                            .padding(16.dp)
                     )
                 }
 
@@ -596,82 +694,6 @@ fun MenuButton(
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1
             )
-        }
-    }
-
-    /**
-     * 核心逻辑：启动文件监听并更新 TextView*/
-    private fun startObservingAnimalStatus() {
-        val logFile = Files.getAnimalStausLogFile() ?: return
-
-        // 1. 如果监听器已存在，直接刷新内容并返回
-        if (animalStatusObserver != null) {
-            refreshAnimalStatusText()
-            return
-        }
-
-        // 2. 初始加载显示
-        refreshAnimalStatusText()
-
-        // 3. 设置 FileObserver (增强监听范围)
-        val parentDir = logFile.parentFile ?: return
-
-        // 监听 修改、关闭并写入、创建、移动
-        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
-
-        animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            object : FileObserver(parentDir, mask) {
-                override fun onEvent(event: Int, path: String?) {
-                    // 当目录下的文件变动且文件名匹配时刷新
-                    if (path == logFile.name) {
-                        refreshAnimalStatusText()
-                    }
-                }
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            object : FileObserver(logFile.absolutePath, mask) {
-                override fun onEvent(event: Int, path: String?) {
-                    refreshAnimalStatusText()
-                }
-            }
-        }
-
-        // 启动监听
-        animalStatusObserver?.startWatching()
-    }
-
-    /**
-     * 独立刷新方法：读取文件并根据 TextView 最大行数截取显示
-     */
-    private fun refreshAnimalStatusText() {
-        val logFile = Files.getAnimalStausLogFile() ?: return
-
-        // 使用 lifecycleScope 确保 Activity 活跃时才执行
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val content = Files.readFromFile(logFile)
-                withContext(Dispatchers.Main) {
-                    // 1. 按行切分并过滤掉空行
-                    val allLines = content.lines().filter { it.isNotBlank() }
-
-                    // 2. 动态获取 TextView 的最大行数限制
-                    val limit = oneWord.maxLines
-
-                    // 3. 截取最后 N 行（最新的在下方）
-                    val displayLines = if (limit > 0 && limit < Int.MAX_VALUE) {
-                        allLines.takeLast(limit)
-                    } else {
-                        allLines
-                    }
-
-                    // 4. 更新 UI
-                    val finalContent = displayLines.joinToString("\n")
-                    oneWord.text = finalContent.ifEmpty { "暂无动物状态日志" }
-                }
-            } catch (e: Exception) {
-                Log.error(TAG, "刷新动物状态文字失败: ${e.message}")
-            }
         }
     }
 }

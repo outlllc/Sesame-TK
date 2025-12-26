@@ -33,8 +33,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- UI 状态流 (StateFlow) ---
 
     // 一言 (初始状态)
-    private val _oneWord = MutableStateFlow("正在获取句子...")
-    val oneWord: StateFlow<String> = _oneWord.asStateFlow()
+//    private val _oneWord = MutableStateFlow("正在获取句子...")
+//    val oneWord: StateFlow<String> = _oneWord.asStateFlow()
 
     // 模块运行状态 (未激活/已激活/已加载)
     private val _runType = MutableStateFlow(RunType.DISABLE)
@@ -50,6 +50,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // 初始化标志位
     private var isInitialized = false
+
+    private val _animalStatus = MutableStateFlow("正在加载动物状态日志...")
+    val animalStatus: StateFlow<String> = _animalStatus.asStateFlow()
+
 
     /**
      * 核心初始化入口
@@ -73,7 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // 4. 加载业务数据
             reloadUserConfigs() // 加载用户列表
-            fetchOneWord()      // 获取一言
+//            fetchOneWord()      // 获取一言
 
             // 5. 监听 LSPosed 服务连接状态
             ServiceManager.addConnectionListener {
@@ -128,14 +132,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 获取一言
      */
-    fun fetchOneWord() {
-        viewModelScope.launch {
-            _oneWord.value = "😡 正在获取句子，请稍后……"
-            // 切换到 IO 线程进行网络请求
-            val result = withContext(Dispatchers.IO) {
-                FansirsqiUtil.getOneWord()
+//    fun fetchOneWord() {
+//        viewModelScope.launch {
+//            _oneWord.value = "😡 正在获取句子，请稍后……"
+//            // 切换到 IO 线程进行网络请求
+//            val result = withContext(Dispatchers.IO) {
+//                FansirsqiUtil.getOneWord()
+//            }
+//            _oneWord.value = result
+//        }
+//    }
+
+    fun loadAnimalStatus() {
+        viewModelScope.launch() {
+            try {val logFile = Files.getAnimalStausLogFile()
+                _animalStatus.value = "日志文件debug"
+                if (logFile != null && logFile.exists()) {
+                    val content = Files.readFromFile(logFile)
+                    val displayLines = content.lines().filter { it.isNotBlank() }.takeLast(8)
+                    _animalStatus.value = displayLines.joinToString("\n").ifEmpty { "日志文件为空" }
+                } else {
+                    _animalStatus.value = "日志文件不存在"
+                }
+            } catch (e: Exception) {
+                _animalStatus.value = "加载失败: ${e.localizedMessage}"
             }
-            _oneWord.value = result
         }
     }
 
