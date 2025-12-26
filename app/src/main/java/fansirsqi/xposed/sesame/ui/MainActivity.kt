@@ -186,6 +186,16 @@ class MainActivity : BaseActivity() {
             MainUiEvent.OpenOtherLog -> openLogFile(Files.getOtherLogFile())
             MainUiEvent.OpenGithub -> openUrl("https://github.com/Fansirsqi/Sesame-TK")
             MainUiEvent.OpenErrorLog -> openLogFile(Files.getErrorLogFile())
+            MainUiEvent.ManualRun -> {
+                val intent = Intent("com.eg.android.AlipayGphone.sesame.execute")
+                intent.putExtra("manual_trigger", true) // 增加此标记
+                sendBroadcast(intent)
+            }
+            MainUiEvent.ManualStop -> {
+                val stopIntent = Intent("com.eg.android.AlipayGphone.sesame.stop")
+                sendBroadcast(stopIntent)
+                Toast.makeText(this, "🛑 已发送打断指令", Toast.LENGTH_SHORT).show()
+            }
             MainUiEvent.AnimanStatus -> {
                 if (hasPermissions) startObservingAnimalStatus()
             }
@@ -453,13 +463,43 @@ fun MainScreen(
                     Spacer(modifier = Modifier.height(32.dp))
 
                     Text(
-                        text = oneWord,
+                        text = "animal status",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .clickable { onEvent(MainActivity.MainUiEvent.AnimanStatus) }
                     )
+
+
                 }
+                // 手动启停
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = 1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        Text = "手动开始",
+                        modifier = Modifier
+                            .clickable {
+                                val intent = Intent("com.eg.android.AlipayGphone.sesame.execute")
+                                intent.putExtra("manual_trigger", true) // 增加此标记
+                                sendBroadcast(intent)
+                            }
+                            .padding(8.dp)
+                    )
+                    Text(
+                        Text = "手动停止",
+                        modifier = Modifier
+                            .clickable {
+                                val stopIntent = Intent("com.eg.android.AlipayGphone.sesame.stop")
+                                sendBroadcast(stopIntent)
+                                Toast.makeText(this, "🛑 已发送打断指令", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(8.dp)
+                    )
+                }
+
 
                 // ... 底部按钮 ...
                 Column(

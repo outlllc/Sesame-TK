@@ -55,7 +55,9 @@ public class TaskRunnerAdapter {
      * 停止任务执行器
      */
     public void stop() {
-        coroutineTaskRunner.stop();
+        if (coroutineTaskRunner != null) {
+            coroutineTaskRunner.stop();
+        }
     }
 
     /**
