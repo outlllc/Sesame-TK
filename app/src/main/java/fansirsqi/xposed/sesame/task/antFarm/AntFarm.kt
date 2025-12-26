@@ -2386,6 +2386,7 @@ class AntFarm : ModelTask() {
                 break
             }
         }
+        Log.farm("剩余可加速的时间少于${remainingTimeValue}分钟")
         Log.record(TAG, "加速卡内部⏩最终 isUseAccelerateTool=$isUseAccelerateTool")
         return isUseAccelerateTool
     }
