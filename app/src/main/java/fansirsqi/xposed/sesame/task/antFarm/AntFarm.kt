@@ -13,6 +13,7 @@ import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.entity.MapperEntity
 import fansirsqi.xposed.sesame.entity.OtherEntityProvider.farmFamilyOption
 import fansirsqi.xposed.sesame.entity.ParadiseCoinBenefit
+import fansirsqi.xposed.sesame.hook.CoroutineScheduler
 import fansirsqi.xposed.sesame.hook.Toast
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit.addIntervalLimit
 import fansirsqi.xposed.sesame.model.BaseModel
@@ -1293,7 +1294,7 @@ class AntFarm : ModelTask() {
                         )
                         Log.farm(maskName + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
                         Log.animalStatus("${logIdentifier}[${TimeUtil.getCommonDate(nextFeedTime)}]",10)
-//                        setAlarm("FA", (remainingSec * 1000).toLong())
+                        if(remainingSec > 0) setAlarm("FA", (remainingSec * 1000).toLong())
                     } else {
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
                         if (feedAnimal(ownerFarmId)) {
@@ -2210,7 +2211,7 @@ class AntFarm : ModelTask() {
 
                         Log.farm(UserMap.getCurrentMaskName() + "30分钟后${KcTime}蹲点赶小鸡")
                         Log.animalStatus("${logIdentifier}[${KcTime}]执行",1)
-//                        setAlarm("KC", 29 * 60 * 1000L)
+                        setAlarm("KC", 30 * 60 * 1000L)
 
                     } catch (e: Exception) {
                         Log.printStackTrace(TAG, "创建蹲点赶鸡失败: ${e.message}",e)
@@ -4384,7 +4385,6 @@ class AntFarm : ModelTask() {
         private const val CACHED_FLAG = "farmQuestion::cache" // 是否已缓存明日答案
     }
 
-    @SuppressLint("ScheduleExactAlarm")
     /**
      * 通用闹钟设置方法
      * @param type 任务类型，如 "KC" (赶鸡), "AW" (起床), "AS" (睡觉)
@@ -4395,33 +4395,25 @@ class AntFarm : ModelTask() {
             val context = fansirsqi.xposed.sesame.SesameApplication.getContext()
                 ?: fansirsqi.xposed.sesame.hook.ApplicationHook.getAppContext()
                 ?: return
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
 
-            val intent = android.content.Intent(context, AntFarmReceiver::class.java).apply {
-                action = "ACTION_ALARM_FARM" // 统一使用一个 Action
-                putExtra("type", type)       // 通过 Extra 区分类型
-                putExtra("ownerFarmId", ownerFarmId)
-            }
-
-            // 使用 type 和 ownerFarmId 的组合生成唯一的 requestCode
-            // 这样不同类型的任务（AW, AS, KC）可以同时存在
-            val requestCode = (type + ownerFarmId).hashCode()
-
-            val pendingIntent = android.app.PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-            )
-
+            // 使用框架统一的调度器
+            val scheduler = CoroutineScheduler(context)
             val triggerAtMillis = System.currentTimeMillis() + delayMillis
 
-            alarmManager.setExactAndAllowWhileIdle(
-                android.app.AlarmManager.RTC_WAKEUP,
-                triggerAtMillis,
-                pendingIntent
+            // requestCode 依然保持唯一性
+            val requestCode = (type + ownerFarmId).hashCode()
+
+            // 注意：CoroutineScheduler.scheduleWakeupAlarm 发送的是固定 Action
+            // 如果想保留 AntFarmReceiver 的独立逻辑，我们需要对 CoroutineScheduler 做一点点扩展
+            // 或者简单点，直接在 AntFarm 中复用它的逻辑：
+
+            scheduler.scheduleWakeupAlarm(
+                triggerAtMillis = triggerAtMillis,
+                requestCode = requestCode,
+                isMainAlarm = false,
+                customAction = "ACTION_ALARM_FARM"
             )
-            Log.record(TAG, "⏰ 已注册系统闹钟[${type}]，将在 ${delayMillis/60000} 分钟后执行")
+
         } catch (e: Exception) {
             Log.error(TAG, "设置闹钟[${type}]失败: ${e.message}")
         }
