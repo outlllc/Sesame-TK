@@ -1048,7 +1048,7 @@ class AntFarm : ModelTask() {
                 Log.animalStatus("${logIdentifier}[${
                     TimeUtil.getCommonDate(animalSleepTime)}]",24)
             } else if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus){
-                Log.animalStatus("${TimeUtil.getCommonDate(System.currentTimeMillis())}小鸡正在睡觉","10")
+                Log.animalStatus("${UserMap.getCurrentMaskName()}小鸡正在睡觉${TimeUtil.getCommonDate(System.currentTimeMillis())}",10)
             }
             if (!hasChildTask(wakeUpTaskId) && !afterWakeUpTime) {
                 val maskName = UserMap.getCurrentMaskName()
