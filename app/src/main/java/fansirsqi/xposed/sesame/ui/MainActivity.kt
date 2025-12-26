@@ -575,26 +575,26 @@ fun MainScreen(
                 // 手动启停
                 Row(
                     modifier = Modifier
-                        .padding(bottom = 1.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .fillMaxWidth() // 占满宽度以便靠右对齐
+                        .padding(bottom = 0.dp), // 与下方控件距离设为 0dp
+                    horizontalArrangement = Arrangement.End, // 关键：子项向右对齐
+                    verticalAlignment = Alignment.CenterVertically // 垂直居中对齐
                 ) {
-                    Text(
-                        text = "手动开始",
-                        color = Color(0xFF4CAF50),
-                        modifier = Modifier
-                            .clickable {
-                                onEvent(MainActivity.MainUiEvent.ManualRun)
-                            }
-                            .padding(16.dp)
-                    )
                     Text(
                         text = "手动停止",
                         color = Color(0xFFF44336),
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .clickable {
-                                onEvent(MainActivity.MainUiEvent.ManualStop)
-                            }
-                            .padding(16.dp)
+                            .clickable { onEvent(MainActivity.MainUiEvent.ManualStop) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                    Text(
+                        text = "手动开始",
+                        color = Color(0xFF4CAF50),
+                        style = MaterialTheme.typography.labelMedium, // 关键：与“森林日志”字体大小一致
+                        modifier = Modifier
+                            .clickable { onEvent(MainActivity.MainUiEvent.ManualRun) }
+                            .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp) // 手动开始在最右
                     )
                 }
 
