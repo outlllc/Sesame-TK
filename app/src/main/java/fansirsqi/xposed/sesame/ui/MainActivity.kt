@@ -118,7 +118,6 @@ class MainActivity : BaseActivity() {
         // 3. 同步图标状态
 
         if (hasPermissions) {
-            viewModel.loadAnimalStatus()
             startObservingAnimalStatus()
         }
 
@@ -257,7 +256,6 @@ class MainActivity : BaseActivity() {
         super.onResume()
         hasPermissions = PermissionUtil.checkFilePermissions(this)
         if (hasPermissions) {
-            viewModel.loadAnimalStatus()
             startObservingAnimalStatus()
             viewModel.reloadUserConfigs()
 
@@ -356,10 +354,10 @@ class MainActivity : BaseActivity() {
         }
 
         // 初始加载
-        viewModel.loadAnimalStatus()
+//        viewModel.loadAnimalStatus()
 
         val parentDir = logFile.parentFile ?: return
-        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE
+        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
 
         animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             object : FileObserver(parentDir, mask) {
