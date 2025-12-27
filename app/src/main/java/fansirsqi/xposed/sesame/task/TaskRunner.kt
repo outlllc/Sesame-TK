@@ -168,7 +168,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             }
             
             val roundTime = System.currentTimeMillis() - roundStartTime
-            Log.record(TAG, "✅ 第${round}/${rounds}轮任务完成，耗时: ${roundTime}ms")
+            Log.record(TAG, "✅ 第${round}/${rounds}轮任务完成，耗时: ${TimeUtil.formatDuration(roundTime)}")
         }
     }
 
@@ -488,7 +488,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val enabledTasks = taskList.count { it.isEnable }
 
         Log.record(TAG, "📈 ===== 协程任务执行统计摘要 =====")
-        Log.record(TAG, "🕐 执行时间: ${totalTime}ms (${String.format("%.1f", totalTime/1000.0)}秒)")
+        Log.record(TAG, "🕐 执行时间: ${TimeUtil.formatDuration(totalTime)}")
         val nextTime = ApplicationHook.nextExecutionTime
         if (nextTime > 0) {
             Log.record(TAG, "📅 下次执行: ${TimeUtil.getCommonDate(nextTime)}")
