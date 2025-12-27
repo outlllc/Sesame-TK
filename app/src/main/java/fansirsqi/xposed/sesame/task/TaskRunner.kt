@@ -1,7 +1,6 @@
 package fansirsqi.xposed.sesame.task
 
 import android.annotation.SuppressLint
-import androidx.compose.foundation.gestures.forEach
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.Model
@@ -15,10 +14,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 
 /**
  * 基于协程的任务执行器类
@@ -107,6 +108,9 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         rounds: Int = BaseModel.taskExecutionRounds.value
     ) {
         runnerScope.launch {
+            // 【关键】启动前重置全局停止标志位
+            ModelTask.isGlobalStopRequested = false
+            
             if (isFirst) {
                 resetCounters()
             }
@@ -115,6 +119,8 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             
             try {
                 executeTasksWithMode(rounds)
+            } catch (e: CancellationException) {
+                Log.record(TAG, "⏹️ 任务执行流程已被手动停止")
             } catch (e: Exception) {
                 Log.printStackTrace(TAG, "run err", e)
             } finally {
@@ -152,12 +158,23 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         Log.record(TAG, "⚙️ 任务执行配置：传入${rounds}轮，BaseModel配置${configuredRounds}轮（用户可在基础设置中调整）")
         
         for (round in 1..rounds) {
+            // 【核心修正】检查全局停止标志，实现硬断路
+            if (ModelTask.isGlobalStopRequested) break
+            coroutineContext.ensureActive()
+            
             val roundStartTime = System.currentTimeMillis()
             val enabledTasksInRound = taskList.filter { it.isEnable }
             
             Log.record(TAG, "🔄 开始顺序执行第${round}/${rounds}轮任务，共${enabledTasksInRound.size}个启用任务")
             
             for ((index, task) in enabledTasksInRound.withIndex()) {
+                // 【核心修正】每次迭代开始前硬性检查全局停止标志
+                if (ModelTask.isGlobalStopRequested) {
+                    Log.record(TAG, "🛑 检测到全局停止信号，终止第${round}轮剩余任务启动")
+                    break
+                }
+                coroutineContext.ensureActive()
+                
                 val taskName = task.getName()
                 Log.record(TAG, "📍 第${round}轮任务进度: ${index + 1}/${enabledTasksInRound.size} - ${taskName}")
                 executeTaskWithTimeout(task, round)
@@ -200,7 +217,12 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 // 正常完成
                 Log.record(TAG, "✅ 任务[$taskId]执行完成，耗时: ${executionTime}ms")
             }
-        } catch (_: TimeoutCancellationException) {
+        } catch (e: CancellationException) {
+            // 【关键修改】如果全局停止信号已开启，必须重新抛出以打断外层 for 循环
+            if (ModelTask.isGlobalStopRequested || e !is TimeoutCancellationException) {
+                throw e
+            }
+            
             // 超时异常：说明任务在宽限期后仍未完成（白名单任务已在内层处理）
             val executionTime = System.currentTimeMillis() - taskStartTime
             val timeoutMsg = "${executionTime}ms > ${effectiveTimeout}ms"
@@ -227,6 +249,9 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             // 短暂延迟后重新启动任务
             delay(RECOVERY_DELAY) // 等待3秒钟
             
+            // 【关键修正】延迟后检查停止信号
+            if (ModelTask.isGlobalStopRequested) throw CancellationException("Manual stop during recovery delay")
+
             try {
                 Log.record(TAG, "正在自动恢复任务[$taskId]，第${attempts + 1}次尝试")
                 // 强制重启任务
@@ -342,6 +367,8 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                         // 等待任务自然完成
                         var lastLogTime = System.currentTimeMillis()
                         while (task.isRunning) {
+                            // 【关键修正】宽限期循环中检查停止信号
+                            if (ModelTask.isGlobalStopRequested) throw CancellationException("Manual stop during graceful period")
                             delay(5000) // 增加到5秒，减少检查频率
                             val currentRunningTime = System.currentTimeMillis() - taskStartTime
                             val now = System.currentTimeMillis()
@@ -353,7 +380,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                         }
                         Log.record(TAG, "✅ 任务[$taskId]在宽限期内完成")
                     }
-                } catch (_: TimeoutCancellationException) {
+                } catch (e: TimeoutCancellationException) {
                     // 宽限期也超时了，重新抛出原始超时异常
                     Log.error(TAG, "❌ 任务[$taskId]宽限期(${gracePeriod/1000}秒)也超时，强制超时处理")
                     throw e
@@ -377,10 +404,10 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             task.addRunCents()
 
             Log.record(TAG, "🎯 启动模块[${taskName}]第${round}轮执行...")
-            logRecordCount.incrementAndGet() // 性能监控：记录日志调用次数
+            logRecordCount.incrementAndGet() //性能监控：记录日志调用次数
             
             // 启动任务（使用新的协程接口）
-            coroutineCreationCount.incrementAndGet() // 性能监控：协程创建计数
+            coroutineCreationCount.incrementAndGet() //性能监控：协程创建计数
             val job = task.startTask(
                 force = false,
                 rounds = 1
@@ -412,6 +439,11 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 monitorJob.cancel()
             }
             
+            // 【关键修正】任务结束后立即检查全局停止信号
+            if (ModelTask.isGlobalStopRequested) {
+                throw CancellationException("Manual stop detected after job completion")
+            }
+
             val executionTime = System.currentTimeMillis() - taskStartTime
             successCount.incrementAndGet()
             
@@ -422,11 +454,12 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             Log.record(TAG, "✅ 模块[${taskName}]第${round}轮执行成功，耗时: ${executionTime}ms")
             logRecordCount.incrementAndGet()
             
-        } catch (_: CancellationException) {
-            // 任务取消是正常的协程控制流程，不需要作为错误处理
+        } catch (e: CancellationException) {
+            // 任务取消是正常的协程控制流程
             val executionTime = System.currentTimeMillis() - taskStartTime
             skippedCount.incrementAndGet()
             Log.record(TAG, "⏹️ 模块[${taskName}]第${round}轮被取消，耗时: ${executionTime}ms")
+            throw e
         } catch (e: Exception) {
             val executionTime = System.currentTimeMillis() - taskStartTime
             failureCount.incrementAndGet()

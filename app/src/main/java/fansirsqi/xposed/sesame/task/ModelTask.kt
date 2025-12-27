@@ -588,11 +588,20 @@ abstract class ModelTask : Model() {
             Dispatchers.Default + SupervisorJob() + CoroutineName("GlobalTaskManager")
         )
 
+        /** 全局停止信号标志位 */
+        @Volatile
+        @JvmField
+        var isGlobalStopRequested: Boolean = false
+
         /**
          * 停止所有任务（协程版本）
          */
         @JvmStatic
         fun stopAllTask() {
+            // 设置全局停止信号，强制终止所有循环
+            isGlobalStopRequested = true
+            Log.record(TAG, "🛑 已触发全局任务停止信号")
+
             globalTaskScope.launch {
                 for (model in modelArray) {
                     if (model != null) {
