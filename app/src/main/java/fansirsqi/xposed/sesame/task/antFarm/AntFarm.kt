@@ -3,7 +3,6 @@
 package fansirsqi.xposed.sesame.task.antFarm
 
 import android.annotation.SuppressLint
-import android.content.Context
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
@@ -27,7 +26,6 @@ import fansirsqi.xposed.sesame.model.modelFieldExt.SelectAndCountModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.SelectModelField
 import fansirsqi.xposed.sesame.model.modelFieldExt.StringModelField
 import fansirsqi.xposed.sesame.newutil.DataStore
-import fansirsqi.xposed.sesame.newutil.DataStore.getOrCreate
 import fansirsqi.xposed.sesame.newutil.TaskBlacklist
 import fansirsqi.xposed.sesame.task.AnswerAI.AnswerAI
 import fansirsqi.xposed.sesame.task.ModelTask
@@ -2213,7 +2211,7 @@ class AntFarm : ModelTask() {
 
 
                         Log.farm(UserMap.getCurrentMaskName() + "30分钟后${KcTime}蹲点赶小鸡")
-                        Log.animalStatus("${logIdentifier}[${KcTime}]执行",1)
+                        Log.animalStatus("${logIdentifier}[${KcTime}]",1)
                         setAlarm("KC", 30 * 60 * 1000L)
 
                     } catch (e: Exception) {

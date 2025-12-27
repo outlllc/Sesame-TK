@@ -155,7 +155,7 @@ abstract class ModelTask : Model() {
 
         // 在协程作用域中启动子任务
 //        childTask.job = taskScope!!.launch {
-        val job = CoroutineScope(coroutineContext).launch {
+        val job = CoroutineScope(currentCoroutineContext()).launch {
             try {
                 childTask.run()
             } catch (e: Exception) {
@@ -509,12 +509,11 @@ abstract class ModelTask : Model() {
             } finally {
                 // 【关键】确保无论发生什么情况，只要加了计数就必须减掉
                 if (isCounted) {
-                    // 执行完成回调
-                    onCompleted?.invoke(isSuccess && !isCancelled)
                     waitingCount.decrementAndGet()
                     waitingTasks.remove(id, this)
                     Log.other("finally 移除delay任务成功: $id")
                 }
+                onCompleted?.invoke(isSuccess && !isCancelled)
             }
             
 //            if (isCancelled) return
