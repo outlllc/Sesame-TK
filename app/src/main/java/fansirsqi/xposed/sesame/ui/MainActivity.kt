@@ -147,6 +147,7 @@ class MainActivity : BaseActivity() {
                 val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
                 val userList by viewModel.userList.collectAsStateWithLifecycle()
                 val animalStatus by viewModel.animalStatus.collectAsStateWithLifecycle()
+                val onlyOnceDaily by viewModel.onlyOnceDaily.collectAsStateWithLifecycle()
 
 
                 MainScreen(
@@ -154,6 +155,7 @@ class MainActivity : BaseActivity() {
                     animalStatus = animalStatus,
                     runType = runType,
                     activeUserName = activeUser?.showName ?: "未载入^o^ 重启支付宝看看👀",
+                    onlyOnceDaily = onlyOnceDaily,
                     onEvent = { event -> handleEvent(event, userList) } // 处理点击事件
                 )
             }
@@ -177,6 +179,7 @@ class MainActivity : BaseActivity() {
         data object ManualRun : MainUiEvent()
         data object ManualStop : MainUiEvent()
         data object AnimanStatus : MainUiEvent()
+        data object ToggleOnlyOnceDaily : MainUiEvent()
 
         // 🔥 新增菜单相关事件
         data class ToggleIconHidden(val isHidden: Boolean) : MainUiEvent()
@@ -209,6 +212,9 @@ class MainActivity : BaseActivity() {
             MainUiEvent.AnimanStatus -> {
                 viewModel.loadAnimalStatus()
                 startObservingAnimalStatus()
+            }
+            MainUiEvent.ToggleOnlyOnceDaily -> {
+                viewModel.toggleOnlyOnceDaily()
             }
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenSettings -> {
@@ -390,6 +396,7 @@ fun MainScreen(
     animalStatus: String,
     runType: RunType,
     activeUserName: String,
+    onlyOnceDaily: Boolean,
     onEvent: (MainActivity.MainUiEvent) -> Unit
 ) {
     BaseTheme {
@@ -532,6 +539,14 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.End, // 关键：子项向右对齐
                     verticalAlignment = Alignment.CenterVertically // 垂直居中对齐
                 ) {
+                    Text(
+                        text = if (onlyOnceDaily) "单次已启用" else "单次已关闭",
+                        color = if (onlyOnceDaily) Color(0xFF4CAF50) else Color(0xFFF44336),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .clickable { onEvent(MainActivity.MainUiEvent.ToggleOnlyOnceDaily) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
                     Text(
                         text = "手动停止",
                         color = Color(0xFFF44336),

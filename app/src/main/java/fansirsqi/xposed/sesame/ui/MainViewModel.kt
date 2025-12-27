@@ -4,10 +4,12 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import fansirsqi.xposed.sesame.data.Config
 import fansirsqi.xposed.sesame.data.RunType
 import fansirsqi.xposed.sesame.data.ServiceManager
 import fansirsqi.xposed.sesame.data.ViewAppInfo
 import fansirsqi.xposed.sesame.entity.UserEntity
+import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.newutil.DataStore
 import fansirsqi.xposed.sesame.newutil.IconManager
 import fansirsqi.xposed.sesame.util.AssetUtil
@@ -53,6 +55,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _animalStatus = MutableStateFlow("正在加载动物状态日志...")
     val animalStatus: StateFlow<String> = _animalStatus.asStateFlow()
+
+    // 每日单次运行状态
+    private val _onlyOnceDaily = MutableStateFlow(CustomSettings.onlyOnceDaily.value)
+    val onlyOnceDaily: StateFlow<Boolean> = _onlyOnceDaily.asStateFlow()
 
 
     /**
@@ -207,6 +213,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // 顺便刷新一下服务状态，确保激活用户显示正确
                 checkServiceState()
+                
+                // 刷新每日单次标志位
+                _onlyOnceDaily.value = CustomSettings.onlyOnceDaily.value
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error reloading user configs", e)
@@ -243,6 +252,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncIconState(isHidden: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             IconManager.syncIconState(getApplication(), isHidden)
+        }
+    }
+
+    /**
+     * 切换每日单次运行设置
+     */
+    fun toggleOnlyOnceDaily() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val newValue = !CustomSettings.onlyOnceDaily.value
+            CustomSettings.onlyOnceDaily.value = newValue
+            _onlyOnceDaily.value = newValue
+            
+            // 保存配置
+            val uid = UserMap.currentUid
+            if (!uid.isNullOrEmpty()) {
+                Config.save(uid, true)
+            }
         }
     }
 }

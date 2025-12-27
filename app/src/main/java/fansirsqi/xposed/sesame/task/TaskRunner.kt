@@ -1,9 +1,12 @@
 package fansirsqi.xposed.sesame.task
 
 import android.annotation.SuppressLint
+import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.model.BaseModel
+import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.model.Model
+import fansirsqi.xposed.sesame.newutil.TaskBlacklist
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
 import kotlinx.coroutines.CancellationException
@@ -116,9 +119,17 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             }
             
             val startTime = System.currentTimeMillis()
-            
+
+            if(CustomSettings.onlyOnceDaily.value && Status.hasFlagToday("OnceDaily::Finished")){
+                Log.other("已启用当日单次运行模式，今日已经完成了黑名单中的项目了")
+            }
+
             try {
                 executeTasksWithMode(rounds)
+                // 设置今日已完成标志，标记一次完整的任务执行流程已结束
+                if (CustomSettings.onlyOnceDaily.value) {
+                    Status.setFlagToday("OnceDaily::Finished")
+                }
             } catch (e: CancellationException) {
                 Log.record(TAG, "⏹️ 任务执行流程已被手动停止")
             } catch (e: Exception) {
@@ -157,15 +168,47 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val configuredRounds = BaseModel.taskExecutionRounds.value
         Log.record(TAG, "⚙️ 任务执行配置：传入${rounds}轮，BaseModel配置${configuredRounds}轮（用户可在基础设置中调整）")
         
+        val isOnceDailyFinished = Status.hasFlagToday("OnceDaily::Finished")
+        val isOnceDailyEnabled = CustomSettings.onlyOnceDaily.value
+        
+        // 当发现自定义黑名单启用时，打印Log.other()
+        if (isOnceDailyFinished && isOnceDailyEnabled) {
+            val customBlacklistedNames = taskList.filter { it.isEnable && isCustomBlacklisted(it.getName()) }
+                .map { it.getName() ?: "未知" }
+            if (customBlacklistedNames.isNotEmpty()) {
+                Log.other("🚫 [每日单次运行] 模式已生效，将跳过以下已完成项目: ${customBlacklistedNames.joinToString(", ")}")
+            }
+        }
+
         for (round in 1..rounds) {
             // 【核心修正】检查全局停止标志，实现硬断路
             if (ModelTask.isGlobalStopRequested) break
             coroutineContext.ensureActive()
             
             val roundStartTime = System.currentTimeMillis()
-            val enabledTasksInRound = taskList.filter { it.isEnable }
             
-            Log.record(TAG, "🔄 开始顺序执行第${round}/${rounds}轮任务，共${enabledTasksInRound.size}个启用任务")
+            // 过滤启用且不在黑名单/自定义排除名单的任务
+            val enabledTasksInRound = taskList.filter { task ->
+                val name = task.getName()
+                val isBasicEligible = task.isEnable && !TaskBlacklist.isTaskInBlacklist(name)
+                
+                if (isOnceDailyFinished && isOnceDailyEnabled) {
+                    // hasflagtoday返回true时执行黑名单逻辑
+                    isBasicEligible && !isCustomBlacklisted(name)
+                } else {
+                    // hasflagtoday返回false时执行原有逻辑
+                    isBasicEligible
+                }
+            }
+            
+            // 统计被排除的任务（用于准确汇总）
+            val allEnabledTasksCount = taskList.count { it.isEnable }
+            val excludedCount = allEnabledTasksCount - enabledTasksInRound.size
+            if (excludedCount > 0) {
+                skippedCount.addAndGet(excludedCount)
+            }
+            
+            Log.record(TAG, "🔄 开始顺序执行第${round}/${rounds}轮任务，共${enabledTasksInRound.size}个有效任务")
             
             for ((index, task) in enabledTasksInRound.withIndex()) {
                 // 【核心修正】每次迭代开始前硬性检查全局停止标志
@@ -613,6 +656,28 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 task.id
             }
             Log.other("正在等待的任务: 名称=${displayName}, 计划执行时间=${TimeUtil.getCommonDate(task.execTime)}")
+        }
+    }
+
+    /**
+     * 检查任务是否被用户自定义设置排除（黑名单）
+     */
+    private fun isCustomBlacklisted(name: String?): Boolean {
+        if (name == null) return false
+        return when (name) {
+            "蚂蚁森林" -> CustomSettings.antForest.value
+            "蚂蚁庄园" -> CustomSettings.antFarm.value
+            "海洋" -> CustomSettings.antOcean.value
+            "农场" -> CustomSettings.antOrchard.value
+            "新村" -> CustomSettings.antStall.value
+            "神奇物种" -> CustomSettings.antDodo.value
+            "蚂蚁森林合种" -> CustomSettings.antCooperate.value
+            "运动" -> CustomSettings.antSports.value
+            "会员" -> CustomSettings.antMember.value
+            "生态保护" -> CustomSettings.EcoProtection.value
+            "绿色经营" -> CustomSettings.greenFinance.value
+            "保护地" -> CustomSettings.reserve.value
+            else -> false
         }
     }
 }
