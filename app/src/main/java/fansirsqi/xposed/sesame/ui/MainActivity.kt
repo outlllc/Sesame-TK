@@ -176,11 +176,16 @@ class MainActivity : BaseActivity() {
 //        WatermarkView.install(activity = this)
     }
 
+    companion object {
+        private var isDetectorInitialized = false
+    }
     // 🔥 新增：在 Activity 中执行 Native 检测
     private fun initNativeDetector() {
+        if (isDetectorInitialized) return // 防止重复初始化
         try {
             if (Detector.loadLibrary("checker")) {
                 Detector.initDetector(this)
+                isDetectorInitialized = true
             }
         } catch (e: Exception) {
             Log.error("MainActivity", "Native detector init failed: ${e.message}")
@@ -286,7 +291,7 @@ class MainActivity : BaseActivity() {
         hasPermissions = PermissionUtil.checkFilePermissions(this)
         if (hasPermissions) {
             startObservingAnimalStatus()
-            viewModel.reloadUserConfigs()
+//            viewModel.reloadUserConfigs()
 
         }
     }
