@@ -425,7 +425,7 @@ public class ApplicationHook {
             File finalSoFile = AssetUtil.INSTANCE.copyStorageSoFileToPrivateDir(context, soFile);
             if (finalSoFile != null) {
                 System.load(finalSoFile.getAbsolutePath());
-                Log.record(TAG, "Loading " + soFile.getName() + " from :" + finalSoFile.getAbsolutePath());
+//                Log.record(TAG, "Loading " + soFile.getName() + " from :" + finalSoFile.getAbsolutePath());
             } else {
                 Detector.INSTANCE.loadLibrary(soFile.getName().replace(".so", "").replace("lib", ""));
             }
@@ -519,13 +519,13 @@ public class ApplicationHook {
 
                     // 异步获取位置信息
                     LocationHelper.requestLocation(locationJson -> {
-                        Log.debug(TAG, "📍 获取到位置信息: " + locationJson);
+//                        Log.debug(TAG, "📍 获取到位置信息: " + locationJson);
                     });
 
                     // ✅ 优先使用 Hook 捕获的版本号
                     if (VersionHook.hasVersion()) {
                         alipayVersion = VersionHook.getCapturedVersion();
-                        Log.record(TAG, "📦 支付宝版本(Hook): " + alipayVersion.getVersionString());
+//                        Log.record(TAG, "📦 支付宝版本(Hook): " + alipayVersion.getVersionString());
                     } else {
                         // 回退方案: 使用传统 PackageManager 获取
                         Log.record(TAG, "⚠️ Hook 未捕获到版本号,使用回退方案");
@@ -567,7 +567,7 @@ public class ApplicationHook {
                             SimplePageManager.INSTANCE.enableWindowMonitoring(classLoader);
 
                             // 初始化CaptchaHandler
-                            Log.record(TAG, "✅ 开始初始化CaptchaHandler，版本: " + version);
+//                            Log.record(TAG, "✅ 开始初始化CaptchaHandler，版本: " + version);
                             SimplePageManager.INSTANCE.addHandler(
                                     "com.alipay.mobile.nebulax.xriver.activity.XRiverActivity",
                                     new Captcha1Handler());
@@ -581,7 +581,7 @@ public class ApplicationHook {
 
                     if (BuildConfig.DEBUG) {
                         try {
-                            Log.record(TAG, "start service for debug rpc");
+//                            Log.record(TAG, "start service for debug rpc");
                             // 使用管理器，仅主进程启动并防重复
                             ModuleHttpServerManager.INSTANCE.startIfNeeded(
                                     8080,
@@ -606,7 +606,7 @@ public class ApplicationHook {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            Log.record(TAG, "hook onResume after start");
+//                            Log.record(TAG, "hook onResume after start");
                             String targetUid = getUserId();
                             Log.record(TAG, "onResume targetUid: " + targetUid);
                             if (targetUid == null) {
@@ -618,7 +618,7 @@ public class ApplicationHook {
                                 if (initHandler(true)) {
                                     init = true;
                                 }
-                                Log.record(TAG, "initHandler success");
+//                                Log.record(TAG, "initHandler success");
                                 return;
                             }
                             String currentUid = UserMap.INSTANCE.getCurrentUid();
@@ -641,10 +641,10 @@ public class ApplicationHook {
                             }
                             // 如果所有特殊情况都未命中，执行一次常规任务检查
                             execHandler();
-                            Log.record(TAG, "hook onResume after end");
+//                            Log.record(TAG, "hook onResume after end");
                         }
                     });
-            Log.record(TAG, "hook login successfully");
+//            Log.record(TAG, "hook login successfully");
         } catch (Throwable t) {
             Log.printStackTrace(TAG, "hook login err", t);
         }
@@ -668,7 +668,7 @@ public class ApplicationHook {
                             }
                             try (DexKitBridge ignored = DexKitBridge.create(apkPath)) {
                                 // Other use cases
-                                Log.record(TAG, "hook dexkit successfully");
+//                                Log.record(TAG, "hook dexkit successfully");
                             }
                             service = appService;
                             mainTask = MainTask.newInstance("MAIN_TASK", () -> {
@@ -716,7 +716,7 @@ public class ApplicationHook {
                                                 TaskRunnerAdapter adapter = new TaskRunnerAdapter();
                                                 adapter.run();
                                             }
-                                            Log.record(TAG, "手动APP触发，已关闭");
+                                            Log.record(TAG, "手动APP触发，运行");
                                             return;
                                         }
                                     }
@@ -766,7 +766,7 @@ public class ApplicationHook {
                     }
 
             );
-            Log.record(TAG, "hook service onCreate successfully");
+//            Log.record(TAG, "hook service onCreate successfully");
         } catch (Throwable t) {
             Log.record(TAG, "hook service onCreate err");
             Log.printStackTrace(TAG, t);
@@ -1373,7 +1373,7 @@ public class ApplicationHook {
                                     String method = intent.getStringExtra("method");
                                     String data = intent.getStringExtra("data");
                                     String type = intent.getStringExtra("type");
-                                    Log.record(TAG, "收到RPC测试请求 - Method: " + method + ", Type: " + type);
+//                                    Log.record(TAG, "收到RPC测试请求 - Method: " + method + ", Type: " + type);
                                     DebugRpc rpcInstance = new DebugRpc();
                                     rpcInstance.start(method, data, type);
                                 } catch (Throwable th) {
@@ -1414,7 +1414,7 @@ public class ApplicationHook {
                 context.registerReceiver(new AlipayBroadcastReceiver(), intentFilter);
             }
             // 记录成功注册广播接收器的日志
-            Log.record(TAG, "hook registerBroadcastReceiver successfully");
+//            Log.record(TAG, "hook registerBroadcastReceiver successfully");
         } catch (Throwable th) {
             // 记录注册广播接收器失败的日志
             Log.record(TAG, "hook registerBroadcastReceiver err:");
