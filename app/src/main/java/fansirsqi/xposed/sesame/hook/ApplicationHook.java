@@ -80,6 +80,10 @@ public class ApplicationHook {
     private static volatile boolean smartSchedulerInitialized = false;
     private static final Object schedulerInitLock = new Object();
 
+    //手动运行和停止
+    private static volatile boolean manualTriggerFlag = false;
+    private static TaskRunnerAdapter currentAdapter = null;
+
     /**
      * 广播动作常量
      */
@@ -90,6 +94,7 @@ public class ApplicationHook {
         static final String RE_LOGIN = "com.eg.android.AlipayGphone.sesame.reLogin";
         static final String STATUS = "com.eg.android.AlipayGphone.sesame.status";
         static final String RPC_TEST = "com.eg.android.AlipayGphone.sesame.rpctest";
+        static final String STOP = "com.eg.android.AlipayGphone.sesame.stop";
     }
 
     /**
@@ -674,6 +679,11 @@ public class ApplicationHook {
                                         alarmTriggeredFlag = false; // Consume the flag
                                     }
 
+                                    boolean isManualTrigger = manualTriggerFlag;
+                                    if (isManualTrigger) {
+                                        manualTriggerFlag = false;
+                                    }
+
                                     if (!init) {
                                         Log.record(TAG, "️🐣跳过执行-未初始化");
                                         return;
@@ -685,6 +695,18 @@ public class ApplicationHook {
 
                                     if (isAlarmTriggered) {
                                         Log.record(TAG, "⏰ 开始新一轮任务 (定时任务触发)");
+                                    } else if (isManualTrigger) { // 如果是手动按钮触发，直接通过
+                                        Log.record(TAG, "▶️ 手动点击按钮，开始运行");
+                                        // 🔥 核心修改点：手动运行时，强制重新加载当前用户的配置
+                                        // 确保 UI 上的修改能即时应用到 Hook 进程的任务逻辑中
+                                        String currentUidForLoad = UserMap.INSTANCE.getCurrentUid();
+                                        if (currentUidForLoad != null) {
+                                            // 1. 强制重新设置当前进程的 UID 环境
+                                            UserMap.INSTANCE.setCurrentUserId(currentUidForLoad);
+                                            // 2. 触发重载（结合 Config.java 的修改，现在可以实时刷新内存了）
+                                            Config.load(currentUidForLoad);
+                                            Log.record(TAG, "已为用户 " + currentUidForLoad + " 重载最新配置");
+                                        }
                                     } else {
                                         if (lastExecTime == 0) {
                                             Log.record(TAG, "▶️ 首次手动触发，开始运行");
@@ -720,15 +742,20 @@ public class ApplicationHook {
                                         return;
                                     }
                                     lastExecTime = currentTime; // 更新最后执行时间
+                                    currentAdapter = new TaskRunnerAdapter();
+                                    currentAdapter.run();
                                     // 方式1：直接使用数组转换
-                                    TaskRunnerAdapter adapter = new TaskRunnerAdapter();
-                                    adapter.run();
+//                                    TaskRunnerAdapter adapter = new TaskRunnerAdapter();
+//                                    adapter.run();
                                     scheduleNextExecutionInternal(lastExecTime);
                                 } catch (IllegalStateException e) {
                                     Log.record(TAG, "⚠️ " + e.getMessage());
                                 } catch (Exception e) {
                                     Log.record(TAG, "❌执行异常");
                                     Log.printStackTrace(TAG, e);
+                                } finally {
+                                    // 任务结束后清空引用，释放内存
+                                    currentAdapter = null;
                                 }
                             });
                             dayCalendar = Calendar.getInstance();
@@ -1073,6 +1100,11 @@ public class ApplicationHook {
     private static void stopHandler() {
         mainTask.stopTask();
         ModelTask.stopAllTask();
+        // 新增：停止执行器中的协程
+        if (currentAdapter != null) {
+            currentAdapter.stop();
+            currentAdapter = null;
+        }
     }
 
     public static void updateDay() {
@@ -1281,6 +1313,18 @@ public class ApplicationHook {
                                 Log.record(TAG, "⏰ 收到定时任务触发广播 (闹钟调度器)EXECUTE");
                                 WakeLockManager.INSTANCE.acquire(context, 600_000L); // 获取10分钟的唤醒锁
                             }
+                            // 2. 识别并记录是否为手动按钮触发
+                            boolean isManual = intent.getBooleanExtra("manual_trigger", false);
+                            if (isManual) {
+                                manualTriggerFlag = true; // 设置静态标记，供 MainTask 内部判断使用
+                            }
+                            // 检查主任务是否正在运行
+                            if (mainTask != null && mainTask.isRunning()) {
+                                if (isManual) {
+                                    Toast.INSTANCE.show("⚠️ 任务正在运行中，请勿重复触发");
+                                }
+                                return;
+                            }
                             // 如果已初始化，直接执行任务；否则先初始化
                             if (init) {
                                 Log.record(TAG, "✅ 模块已初始化，开始执行任务EXECUTE");
@@ -1295,6 +1339,11 @@ public class ApplicationHook {
                                     }
                                 });
                             }
+                            break;
+                        case BroadcastActions.STOP:
+                            Log.record(TAG, "🛑 收到停止指令，正在中断当前模块的任务");
+                            stopHandler(); //
+                            Toast.INSTANCE.show("🛑 任务已尝试停止");
                             break;
                         case BroadcastActions.PRE_WAKEUP:
                             Log.record(TAG, "⏰ 收到唤醒广播，准备执行任务PRE_WAKEUP");
@@ -1383,6 +1432,7 @@ public class ApplicationHook {
         intentFilter.addAction(BroadcastActions.RE_LOGIN); // 重新登录支付宝的动作
         intentFilter.addAction(BroadcastActions.STATUS); // 查询支付宝状态的动作
         intentFilter.addAction(BroadcastActions.RPC_TEST); // 调试RPC的动作
+        intentFilter.addAction(BroadcastActions.STOP); //手动停止任务运行
         return intentFilter;
     }
 

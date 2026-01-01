@@ -1,11 +1,15 @@
 package fansirsqi.xposed.sesame.task
 
 import android.annotation.SuppressLint
+import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.hook.ApplicationHook
 import fansirsqi.xposed.sesame.model.BaseModel
+import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.model.Model
+import fansirsqi.xposed.sesame.newutil.TaskBlacklist
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
+import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -14,10 +18,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 
 /**
  * 基于协程的任务执行器类
@@ -106,14 +112,29 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         rounds: Int = BaseModel.taskExecutionRounds.value
     ) {
         runnerScope.launch {
+            // 【关键】启动前重置全局停止标志位
+            ModelTask.isGlobalStopRequested = false
+
             if (isFirst) {
                 resetCounters()
             }
             
             val startTime = System.currentTimeMillis()
-            
+
+            val isOnceDailyEnabled = CustomSettings.onlyOnceDaily.value
+            val isOnceDailyFinished = Status.hasFlagToday("OnceDaily::Finished")
+            if(isOnceDailyEnabled && isOnceDailyFinished){
+                Log.other("已启用当日单次运行模式，今日已经完成任务，本次将跳过部分项目")
+            }
+
             try {
                 executeTasksWithMode(rounds)
+                // 设置今日已完成标志，标记一次完整的任务执行流程已结束
+                if (CustomSettings.onlyOnceDaily.value) {
+                    Status.setFlagToday("OnceDaily::Finished")
+                }
+            } catch (e: CancellationException) {
+                Log.record(TAG, "⏹️ 任务执行流程已被手动停止")
             } catch (e: Exception) {
                 Log.printStackTrace(TAG, "run err", e)
             } finally {
@@ -150,13 +171,56 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val configuredRounds = BaseModel.taskExecutionRounds.value
         Log.record(TAG, "⚙️ 任务执行配置：传入${rounds}轮，BaseModel配置${configuredRounds}轮（用户可在基础设置中调整）")
         
+        val isOnceDailyFinished = Status.hasFlagToday("OnceDaily::Finished")
+        val isOnceDailyEnabled = CustomSettings.onlyOnceDaily.value
+        
+        // 当发现自定义黑名单启用时，打印Log.other()
+        if (isOnceDailyFinished && isOnceDailyEnabled) {
+            val customBlacklistedNames = taskList.filter { it.isEnable && isCustomBlacklisted(it.getName()) }
+                .map { it.getName() ?: "未知" }
+            if (customBlacklistedNames.isNotEmpty()) {
+                Log.other("🚫 [每日单次运行] 模式已生效，将跳过以下已完成项目: ${customBlacklistedNames.joinToString(", ")}")
+            }
+        }
+
         for (round in 1..rounds) {
-            val roundStartTime = System.currentTimeMillis()
-            val enabledTasksInRound = taskList.filter { it.isEnable }
+            // 【核心修正】检查全局停止标志，实现硬断路
+            if (ModelTask.isGlobalStopRequested) break
+            coroutineContext.ensureActive()
             
-            Log.record(TAG, "🔄 开始顺序执行第${round}/${rounds}轮任务，共${enabledTasksInRound.size}个启用任务")
+            val roundStartTime = System.currentTimeMillis()
+            
+            // 过滤启用且不在黑名单/自定义排除名单的任务
+            val enabledTasksInRound = taskList.filter { task ->
+                val name = task.getName()
+                val isBasicEligible = task.isEnable && !TaskBlacklist.isTaskInBlacklist(name)
+                
+                if (isOnceDailyFinished && isOnceDailyEnabled) {
+                    // hasflagtoday返回true时执行黑名单逻辑
+                    isBasicEligible && !isCustomBlacklisted(name)
+                } else {
+                    // hasflagtoday返回false时执行原有逻辑
+                    isBasicEligible
+                }
+            }
+            
+            // 统计被排除的任务（用于准确汇总）
+            val allEnabledTasksCount = taskList.count { it.isEnable }
+            val excludedCount = allEnabledTasksCount - enabledTasksInRound.size
+            if (excludedCount > 0) {
+                skippedCount.addAndGet(excludedCount)
+            }
+            
+            Log.record(TAG, "🔄 开始顺序执行第${round}/${rounds}轮任务，共${enabledTasksInRound.size}个有效任务")
             
             for ((index, task) in enabledTasksInRound.withIndex()) {
+                // 【核心修正】每次迭代开始前硬性检查全局停止标志
+                if (ModelTask.isGlobalStopRequested) {
+                    Log.record(TAG, "🛑 检测到全局停止信号，终止第${round}轮剩余任务启动")
+                    break
+                }
+                coroutineContext.ensureActive()
+                
                 val taskName = task.getName()
                 Log.record(TAG, "📍 第${round}轮任务进度: ${index + 1}/${enabledTasksInRound.size} - ${taskName}")
                 executeTaskWithTimeout(task, round)
@@ -167,7 +231,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             }
             
             val roundTime = System.currentTimeMillis() - roundStartTime
-            Log.record(TAG, "✅ 第${round}/${rounds}轮任务完成，耗时: ${roundTime}ms")
+            Log.record(TAG, "✅ 第${round}/${rounds}轮任务完成，耗时: ${TimeUtil.formatDuration(roundTime)}")
         }
     }
 
@@ -199,7 +263,12 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 // 正常完成
                 Log.record(TAG, "✅ 任务[$taskId]执行完成，耗时: ${executionTime}ms")
             }
-        } catch (_: TimeoutCancellationException) {
+        } catch (e: CancellationException) {
+            // 【关键修改】如果全局停止信号已开启，必须重新抛出以打断外层 for 循环
+            if (ModelTask.isGlobalStopRequested || e !is TimeoutCancellationException) {
+                throw e
+            }
+            
             // 超时异常：说明任务在宽限期后仍未完成（白名单任务已在内层处理）
             val executionTime = System.currentTimeMillis() - taskStartTime
             val timeoutMsg = "${executionTime}ms > ${effectiveTimeout}ms"
@@ -221,10 +290,14 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             
             // 取消当前任务的所有协程
             task.stopTask()
+            Log.record(TAG, "❌ 任务[$taskId]执行超时，准备自动恢复")
             
             // 短暂延迟后重新启动任务
             delay(RECOVERY_DELAY) // 等待3秒钟
             
+            // 【关键修正】延迟后检查停止信号
+            if (ModelTask.isGlobalStopRequested) throw CancellationException("Manual stop during recovery delay")
+
             try {
                 Log.record(TAG, "正在自动恢复任务[$taskId]，第${attempts + 1}次尝试")
                 // 强制重启任务
@@ -340,6 +413,8 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                         // 等待任务自然完成
                         var lastLogTime = System.currentTimeMillis()
                         while (task.isRunning) {
+                            // 【关键修正】宽限期循环中检查停止信号
+                            if (ModelTask.isGlobalStopRequested) throw CancellationException("Manual stop during graceful period")
                             delay(5000) // 增加到5秒，减少检查频率
                             val currentRunningTime = System.currentTimeMillis() - taskStartTime
                             val now = System.currentTimeMillis()
@@ -351,7 +426,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                         }
                         Log.record(TAG, "✅ 任务[$taskId]在宽限期内完成")
                     }
-                } catch (_: TimeoutCancellationException) {
+                } catch (e: TimeoutCancellationException) {
                     // 宽限期也超时了，重新抛出原始超时异常
                     Log.error(TAG, "❌ 任务[$taskId]宽限期(${gracePeriod/1000}秒)也超时，强制超时处理")
                     throw e
@@ -375,10 +450,10 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             task.addRunCents()
 
             Log.record(TAG, "🎯 启动模块[${taskName}]第${round}轮执行...")
-            logRecordCount.incrementAndGet() // 性能监控：记录日志调用次数
+            logRecordCount.incrementAndGet() //性能监控：记录日志调用次数
             
             // 启动任务（使用新的协程接口）
-            coroutineCreationCount.incrementAndGet() // 性能监控：协程创建计数
+            coroutineCreationCount.incrementAndGet() //性能监控：协程创建计数
             val job = task.startTask(
                 force = false,
                 rounds = 1
@@ -410,6 +485,11 @@ class CoroutineTaskRunner(allModels: List<Model>) {
                 monitorJob.cancel()
             }
             
+            // 【关键修正】任务结束后立即检查全局停止信号
+            if (ModelTask.isGlobalStopRequested) {
+                throw CancellationException("Manual stop detected after job completion")
+            }
+
             val executionTime = System.currentTimeMillis() - taskStartTime
             successCount.incrementAndGet()
             
@@ -420,11 +500,12 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             Log.record(TAG, "✅ 模块[${taskName}]第${round}轮执行成功，耗时: ${executionTime}ms")
             logRecordCount.incrementAndGet()
             
-        } catch (_: CancellationException) {
-            // 任务取消是正常的协程控制流程，不需要作为错误处理
+        } catch (e: CancellationException) {
+            // 任务取消是正常的协程控制流程
             val executionTime = System.currentTimeMillis() - taskStartTime
             skippedCount.incrementAndGet()
             Log.record(TAG, "⏹️ 模块[${taskName}]第${round}轮被取消，耗时: ${executionTime}ms")
+            throw e
         } catch (e: Exception) {
             val executionTime = System.currentTimeMillis() - taskStartTime
             failureCount.incrementAndGet()
@@ -486,10 +567,12 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val enabledTasks = taskList.count { it.isEnable }
 
         Log.record(TAG, "📈 ===== 协程任务执行统计摘要 =====")
-        Log.record(TAG, "🕐 执行时间: ${totalTime}ms (${String.format("%.1f", totalTime/1000.0)}秒)")
+        Log.record(TAG, "🕐 执行时间: ${TimeUtil.formatDuration(totalTime)}")
         val nextTime = ApplicationHook.nextExecutionTime
         if (nextTime > 0) {
+            val maskName = UserMap.getCurrentMaskName() ?: "未知用户"
             Log.record(TAG, "📅 下次执行: ${TimeUtil.getCommonDate(nextTime)}")
+            Log.animalStatus("[$maskName]📅下次执行:${TimeUtil.getCommonDate(nextTime)}",5)
         }
         Log.record(TAG, "📋 任务总数: $totalTasks (启用: $enabledTasks)")
         Log.record(TAG, "✅ 成功任务: ${successCount.get()}")
@@ -541,6 +624,8 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         if (totalTime > 60000) { // 超过1分钟
             Log.record(TAG, "⚠️ 执行时间较长，建议检查任务配置或网络状况")
         }
+
+        listScheduledTask()
         
         Log.record(TAG, "================================")
     }
@@ -551,5 +636,53 @@ class CoroutineTaskRunner(allModels: List<Model>) {
     fun stop() {
         runnerScope.cancel()
         Log.record(TAG, "协程任务执行器已停止")
+    }
+
+    fun listScheduledTask(){
+        // 获取等待任务的总数
+        val count = ModelTask.ChildModelTask.getWaitingCount()
+        if (count == 0) return
+        Log.other("定时执行任务总数：${count}个")
+
+        // 打印所有正在等待的任务详情
+        val tasks = ModelTask.ChildModelTask.getWaitingTasks()
+        tasks.forEach { task ->
+            // 匹配 FA| 开头的 ID 并转换
+            val displayName = if (task.id.startsWith("FA|")) {
+                "庄园蹲点喂小鸡"
+            } else if (task.id.startsWith("AW|")) {
+                "小鸡定时起床"
+            }else if (task.id.startsWith("AS|")) {
+                "小鸡定时睡觉"
+            }else if (task.id.startsWith("KC|")) {
+                "小鸡蹲点驱赶偷吃"
+            }
+            else {
+                task.id
+            }
+            Log.other("正在等待的任务: 名称=${displayName}, 计划执行时间=${TimeUtil.getCommonDate(task.execTime)}")
+        }
+    }
+
+    /**
+     * 检查任务是否被用户自定义设置排除（黑名单）
+     */
+    private fun isCustomBlacklisted(name: String?): Boolean {
+        if (name == null) return false
+        return when (name) {
+            "蚂蚁森林" -> CustomSettings.antForest.value
+            "蚂蚁庄园" -> CustomSettings.antFarm.value
+            "海洋" -> CustomSettings.antOcean.value
+            "农场" -> CustomSettings.antOrchard.value
+            "新村" -> CustomSettings.antStall.value
+            "神奇物种" -> CustomSettings.antDodo.value
+            "蚂蚁森林合种" -> CustomSettings.antCooperate.value
+            "运动" -> CustomSettings.antSports.value
+            "会员" -> CustomSettings.antMember.value
+            "生态保护" -> CustomSettings.EcoProtection.value
+            "绿色经营" -> CustomSettings.greenFinance.value
+            "保护地" -> CustomSettings.reserve.value
+            else -> false
+        }
     }
 }

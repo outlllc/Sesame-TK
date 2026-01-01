@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.os.FileObserver
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
@@ -30,8 +32,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -59,6 +63,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -66,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -83,9 +89,9 @@ import fansirsqi.xposed.sesame.SesameApplication.Companion.preferencesKey
 import fansirsqi.xposed.sesame.entity.UserEntity
 import fansirsqi.xposed.sesame.newui.DeviceInfoCard
 import fansirsqi.xposed.sesame.newui.DeviceInfoUtil
+import fansirsqi.xposed.sesame.newui.WatermarkLayer
 import fansirsqi.xposed.sesame.newutil.IconManager
 import fansirsqi.xposed.sesame.ui.MainViewModel.Companion.verifyId
-import fansirsqi.xposed.sesame.ui.components.WatermarkLayer
 import fansirsqi.xposed.sesame.ui.log.LogViewerComposeActivity
 import fansirsqi.xposed.sesame.ui.theme.AppTheme
 import fansirsqi.xposed.sesame.util.Detector
@@ -103,6 +109,8 @@ class MainActivity : BaseActivity() {
     private val viewModel: MainViewModel by viewModels()
 //    private lateinit var watermarkView: WatermarkView
 
+    private var animalStatusObserver: FileObserver? = null
+
     // Shizuku 监听器
     private val shizukuListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1234) {
@@ -115,16 +123,24 @@ class MainActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
 
         // 1. 检查权限并初始化逻辑
-        if (PermissionUtil.checkOrRequestFilePermissions(this)) {
+        hasPermissions = PermissionUtil.checkFilePermissions(this)
+        if (hasPermissions) {
             viewModel.initAppLogic()
             // 🔥 修复：Native 检测必须在 Activity 中调用
             initNativeDetector()
+        } else {
+            PermissionUtil.checkOrRequestFilePermissions(this)
         }
 
         // 2. 初始化 Shizuku
         setupShizuku()
 
         // 3. 同步图标状态
+
+        if (hasPermissions) {
+            startObservingAnimalStatus()
+        }
+
         val prefs = getSharedPreferences(preferencesKey, MODE_PRIVATE)
         IconManager.syncIconState(this, prefs.getBoolean("is_icon_hidden", false))
 
@@ -132,9 +148,12 @@ class MainActivity : BaseActivity() {
         // 5. 设置 Compose 内容 (替代 setContentView)
         setContent {
 // 收集 ViewModel 状态
-            val oneWord by viewModel.oneWord.collectAsStateWithLifecycle()
+//            val oneWord by viewModel.oneWord.collectAsStateWithLifecycle()
             val activeUser by viewModel.activeUser.collectAsStateWithLifecycle()
             val userList by viewModel.userList.collectAsStateWithLifecycle()
+            val animalStatus by viewModel.animalStatus.collectAsStateWithLifecycle()
+            val onlyOnceDaily by viewModel.onlyOnceDaily.collectAsStateWithLifecycle()
+            val isFinishedToday by viewModel.isFinishedToday.collectAsStateWithLifecycle()
             // ✨ 1. 从 ViewModel 收集模块状态
             val moduleStatus by viewModel.moduleStatus.collectAsStateWithLifecycle()
 
@@ -142,15 +161,16 @@ class MainActivity : BaseActivity() {
             AppTheme {
                 WatermarkLayer {
                     MainScreen(
-                        oneWord = oneWord,
+                        animalStatus = animalStatus,
                         activeUserName = activeUser?.showName ?: "未载入^o^ 重启支付宝看看👀",
                         moduleStatus = moduleStatus, // ✨ 传递状态
                         viewModel = viewModel,
+                        onlyOnceDaily = onlyOnceDaily,
+                        isFinishedToday = isFinishedToday,
                         onEvent = { event -> handleEvent(event, userList) } // 处理点击事件
                     )
                 }
             }
-
         }
 
 //        WatermarkView.install(activity = this)
@@ -171,7 +191,7 @@ class MainActivity : BaseActivity() {
      * 定义 UI 事件，解耦逻辑
      */
     sealed class MainUiEvent {
-        data object RefreshOneWord : MainUiEvent()
+        //        data object RefreshOneWord : MainUiEvent()
         data object OpenForestLog : MainUiEvent()
         data object OpenFarmLog : MainUiEvent()
         data object OpenGithub : MainUiEvent()
@@ -179,6 +199,10 @@ class MainActivity : BaseActivity() {
         data object OpenOtherLog : MainUiEvent()
         data object OpenAllLog : MainUiEvent()
         data object OpenSettings : MainUiEvent()
+        data object ManualRun : MainUiEvent()
+        data object ManualStop : MainUiEvent()
+        data object AnimanStatus : MainUiEvent()
+        data object ToggleOnlyOnceDaily : MainUiEvent()
 
         // 🔥 新增菜单相关事件
         data class ToggleIconHidden(val isHidden: Boolean) : MainUiEvent()
@@ -192,12 +216,29 @@ class MainActivity : BaseActivity() {
      */
     private fun handleEvent(event: MainUiEvent, userList: List<UserEntity>) {
         when (event) {
-            MainUiEvent.RefreshOneWord -> viewModel.fetchOneWord()
+//            MainUiEvent.RefreshOneWord -> {viewModel.fetchOneWord()}
             MainUiEvent.OpenForestLog -> openLogFile(Files.getForestLogFile())
             MainUiEvent.OpenFarmLog -> openLogFile(Files.getFarmLogFile())
             MainUiEvent.OpenOtherLog -> openLogFile(Files.getOtherLogFile())
             MainUiEvent.OpenGithub -> openUrl("https://github.com/Fansirsqi/Sesame-TK")
-            MainUiEvent.OpenErrorLog -> executeWithVerification { openLogFile(Files.getErrorLogFile()) }
+            MainUiEvent.OpenErrorLog -> openLogFile(Files.getErrorLogFile())
+            MainUiEvent.ManualRun -> {
+                val intent = Intent("com.eg.android.AlipayGphone.sesame.execute")
+                intent.putExtra("manual_trigger", true) // 增加此标记
+                sendBroadcast(intent)
+            }
+            MainUiEvent.ManualStop -> {
+                val stopIntent = Intent("com.eg.android.AlipayGphone.sesame.stop")
+                sendBroadcast(stopIntent)
+                Toast.makeText(this, "🛑 已发送打断指令", Toast.LENGTH_SHORT).show()
+            }
+            MainUiEvent.AnimanStatus -> {
+                viewModel.loadAnimalStatus()
+                startObservingAnimalStatus()
+            }
+            MainUiEvent.ToggleOnlyOnceDaily -> {
+                viewModel.toggleOnlyOnceDaily()
+            }
             MainUiEvent.OpenAllLog -> openLogFile(Files.getRecordLogFile())
             MainUiEvent.OpenSettings -> {
                 showUserSelectionDialog(userList) { selectedUser ->
@@ -242,11 +283,18 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (hasPermissions) viewModel.reloadUserConfigs()
+        hasPermissions = PermissionUtil.checkFilePermissions(this)
+        if (hasPermissions) {
+            startObservingAnimalStatus()
+            viewModel.reloadUserConfigs()
+
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        animalStatusObserver?.stopWatching()
+        animalStatusObserver = null
         Shizuku.removeRequestPermissionResultListener(shizukuListener)
     }
 
@@ -322,6 +370,42 @@ class MainActivity : BaseActivity() {
             }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /**
+     * 核心逻辑：启动文件监听并更新 TextView*/
+    fun startObservingAnimalStatus() {
+        val logFile = Files.getAnimalStatusLogFile() ?: return
+
+        // 如果已经有观察者了，直接触发一次加载即可，不要重复创建观察者
+        if (animalStatusObserver != null) {
+            viewModel.loadAnimalStatus()
+            return
+        }
+
+        // 初始加载
+//        viewModel.loadAnimalStatus()
+
+        val parentDir = logFile.parentFile ?: return
+        val mask = FileObserver.MODIFY or FileObserver.CLOSE_WRITE or FileObserver.CREATE or FileObserver.MOVED_TO
+
+        animalStatusObserver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            object : FileObserver(parentDir, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    if (path == logFile.name) {
+                        viewModel.loadAnimalStatus()
+                    }
+                }
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            object : FileObserver(logFile.absolutePath, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    viewModel.loadAnimalStatus()
+                }
+            }
+        }
+        animalStatusObserver?.startWatching()
     }
 }
 
@@ -411,17 +495,20 @@ fun StatusCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    oneWord: String,
+//    oneWord: String,
     activeUserName: String,
+    animalStatus: String,
     moduleStatus: MainViewModel.ModuleStatus, // ✨ 接收状态
     viewModel: MainViewModel, // 建议直接传 VM 或者把 isLoading 传进来
+    onlyOnceDaily: Boolean,
+    isFinishedToday: Boolean,
     onEvent: (MainActivity.MainUiEvent) -> Unit,
 ) {
 //    ✨ 3. 在 MainScreen 中管理 StatusCard 的展开状态
     var isStatusCardExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val isOneWordLoading by viewModel.isOneWordLoading.collectAsStateWithLifecycle()//获取一言加载状态
+//    val isOneWordLoading by viewModel.isOneWordLoading.collectAsStateWithLifecycle()//获取一言加载状态
 
     // 获取当前图标隐藏状态 (从 SP 读取，这里简单用 remember 读取一次，更严谨应该从 ViewModel 读)
     val prefs = context.getSharedPreferences(preferencesKey, Context.MODE_PRIVATE)
@@ -429,6 +516,14 @@ fun MainScreen(
 
     // 控制下拉菜单显示
     var showMenu by remember { mutableStateOf(false) }
+
+    // 🔥 新增：管理日志显示的滚动状态
+    val scrollState = androidx.compose.foundation.rememberScrollState()
+
+    // 🔥 新增：当日志内容更新时，自动滚动到底部
+    LaunchedEffect(animalStatus) {
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
 
     // 异步加载设备信息，启动后自动更新3次
     val deviceInfoMap by produceState<Map<String, String>?>(initialValue = null) {
@@ -525,81 +620,88 @@ fun MainScreen(
                 verticalArrangement = Arrangement.Center
             ) {
 
-                StatusCard(
-                    status = moduleStatus,
-                    expanded = isStatusCardExpanded,
-                    onClick = {
-                        // ✨ 点击时，仅当未激活状态才切换展开状态
-                        if (moduleStatus is MainViewModel.ModuleStatus.NotActivated) {
-                            isStatusCardExpanded = !isStatusCardExpanded
-                        } else {
-                            ToastUtil.showToast(oneWord)
-                            // 对于已激活状态，可以考虑弹一个 Toast
-                            // (为了简单，这里暂时不做任何事)
-                        }
+//                StatusCard(
+//                    status = moduleStatus,
+//                    expanded = isStatusCardExpanded,
+//                    onClick = {
+//                        // ✨ 点击时，仅当未激活状态才切换展开状态
+//                        if (moduleStatus is MainViewModel.ModuleStatus.NotActivated) {
+//                            isStatusCardExpanded = !isStatusCardExpanded
+//                        } else {
+////                            ToastUtil.showToast(oneWord)
+//                            // 对于已激活状态，可以考虑弹一个 Toast
+//                            // (为了简单，这里暂时不做任何事)
+//                        }
+//                    }
+//                )
+
+
+                Box(modifier = Modifier.offset(y = (-10).dp)) {
+                    if (deviceInfoMap != null) {
+                        DeviceInfoCard(deviceInfoMap!!)
+                    } else {
+                        CircularProgressIndicator()
                     }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .padding(start = 10.dp, end = 10.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 255.dp) // 🔥 限制最大显示高度（约 12-14 行视觉高度）
+                    .verticalScroll(scrollState)
+                    .clickable { onEvent(MainActivity.MainUiEvent.AnimanStatus) }
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = animalStatus,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Start,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
+            }
 
+            Spacer(modifier = Modifier.height(5.dp))
 
-                if (deviceInfoMap != null) {
-                    DeviceInfoCard(deviceInfoMap!!)
-                } else {
-                    CircularProgressIndicator()
+            // 手动启停
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth() // 占满宽度以便靠右对齐
+                    .padding(bottom = 0.dp), // 与下方控件距离设为 0dp
+                horizontalArrangement = Arrangement.End, // 关键：子项向右对齐
+                verticalAlignment = Alignment.CenterVertically // 垂直居中对齐
+            ) {
+                // 🔥 核心逻辑：根据 开启状态 和 执行状态 动态计算文案与颜色
+                val (statusText, statusColor) = when {
+                    !onlyOnceDaily -> "单次已关闭" to Color(0xFFF44336) // 红色
+                    isFinishedToday -> "今日已完成" to Color(0xFF2196F3) // 蓝色 (表示由于单次运行设置而跳过)
+                    else -> "单次已启用" to Color(0xFF4CAF50) // 绿色
                 }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Box(
-                    contentAlignment = Alignment.Center,
+                Text(
+                    text = statusText,
+                    color = statusColor,
+                    style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        // 🔥 核心防抖：设置最小高度 (例如 60dp)，保证即使内容变化，占据的空间也不会忽大忽小
-                        .heightIn(min = 130.dp)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp)) // 点击水波纹圆角
-                        .clickable(
-                            // 只有不在加载时才允许点击
-                            enabled = !isOneWordLoading,
-                            onClick = { onEvent(MainActivity.MainUiEvent.RefreshOneWord) }
-                        )
-                        .padding(8.dp) // 内部留白
-                ) {
-                    // 使用动画平滑切换 Loading 和 文本
-                    AnimatedContent(
-                        targetState = isOneWordLoading,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "OneWordAnimation"
-                    ) { loading ->
-                        if (loading) {
-                            Column( // 🔥 加这层
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {// 状态 A: 显示小转圈
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp), // 小一点，精致一点
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(1.dp))
-                                Text(
-                                    "本来无一物,何处惹尘..",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                            }
-
-                        } else {
-                            // 状态 B: 显示文本
-                            Text(
-                                text = oneWord,
-                                fontSize = 14.sp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
+                        .clickable { onEvent(MainActivity.MainUiEvent.ToggleOnlyOnceDaily) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                Text(
+                    text = "手动停止",
+                    color = Color(0xFFF44336),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .clickable { onEvent(MainActivity.MainUiEvent.ManualStop) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                Text(
+                    text = "手动开始",
+                    color = Color(0xFF4CAF50),
+                    style = MaterialTheme.typography.labelMedium, // 关键：与“森林日志”字体大小一致
+                    modifier = Modifier
+                        .clickable { onEvent(MainActivity.MainUiEvent.ManualRun) }
+                        .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp) // 手动开始在最右
+                )
             }
 
             // ... 底部按钮 ...

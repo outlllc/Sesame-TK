@@ -100,9 +100,9 @@ object DeviceInfoUtil {
         }
 
         mapOf(
-            "Product" to "${Build.MANUFACTURER} ${Build.PRODUCT}",
-            "Device" to getDeviceName(context),
-            "Android Version" to "${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
+            // "Product" to "${Build.MANUFACTURER} ${Build.PRODUCT}",
+            // "Device" to getDeviceName(),
+            // "Android Version" to "${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
             "Verify ID" to vid,
             "Captcha Permission" to permissionStatus,
             "Module Version" to "v${BuildConfig.VERSION_NAME} ${BuildConfig.VERSION_CODE}",

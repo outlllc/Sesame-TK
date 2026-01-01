@@ -63,7 +63,16 @@ object SmartSchedulerManager {
         scheduler?.scheduleExactExecution(delayMillis, exactTimeMillis)
             ?: Log.error(TAG, "调度器未初始化")
 
-        Log.record(TAG, "📅 已调度 (闹钟调度器) | 延迟: ${delayMillis / 1000}s")
+        val h = delayMillis / 3600000
+        val m = (delayMillis % 3600000) / 60000
+        val s = (delayMillis % 60000) / 1000
+        val delayStr = buildString {
+            if (h > 0) append("${h}时")
+            if (m > 0 || h > 0) append("${m}分")
+            append("${s}秒")
+        }
+
+        Log.record(TAG, "📅 已调度 (闹钟调度器) | 延迟: $delayStr")
     }
 
     /**

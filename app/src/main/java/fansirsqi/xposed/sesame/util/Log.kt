@@ -1,11 +1,16 @@
 package fansirsqi.xposed.sesame.util
 
 import android.content.Context
+import android.util.Log
 import fansirsqi.xposed.sesame.model.BaseModel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.util.Calendar
+import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.text.DateFormat;
+
 
 /**
  * 日志工具类，负责初始化和管理各种类型的日志记录器，并提供日志输出方法。
@@ -201,5 +206,151 @@ object Log {
     fun printStack(tag: String) {
         val stackTrace = "stack: " + android.util.Log.getStackTraceString(Exception("获取当前堆栈$tag:"))
         record(stackTrace)
+    }
+
+    /**
+     * 动物状态日志输出（默认10小时过期）
+     */
+    @Synchronized
+    fun animalStatus(msg: String) {
+        animalStatus(msg, 10)
+    }
+
+    /**
+     * 动物状态日志输出
+     * @param msg 消息内容
+     * @param expiryHours 过期时间（小时）
+     */
+    @Synchronized
+    fun animalStatus(msg: String, expiryHours: Int) {
+        // 依然记录到 record.log 备份，防止数据丢失
+        record(msg)
+
+        try {
+            val logFile = Files.getAnimalStatusLogFile()
+
+            // 1. 读取当前文件所有行
+            val content = Files.readFromFile(logFile)
+            val lines: MutableList<String?> = ArrayList<String?>()
+
+            val now = System.currentTimeMillis()
+            val expiryMillis = expiryHours.toLong() * 60 * 60 * 1000
+            val sdf: DateFormat = TimeUtil.getCommonDateFormat()
+
+            // 1. 遍历清理：同时处理“过期”和“完全重复”
+            for (line in content.split("\n".toRegex()).dropLastWhile { it.isEmpty() }
+                .toTypedArray()) {
+                val trimmedLine = line.trim { it <= ' ' }
+                if (trimmedLine.isEmpty()) continue
+
+                // 如果发现内容完全一样，直接跳过（即删除旧的），稍后会在末尾添加新的
+                if (trimmedLine == msg.trim { it <= ' ' }) {
+                    continue
+                }
+
+                var isExpired = false
+                val timePart = extractTimePart(trimmedLine)
+                if (timePart != null) {
+                    try {
+                        val logDate: Date? = sdf.parse(timePart)
+                        if (logDate != null) {
+                            val logCal = Calendar.getInstance()
+                            logCal.setTime(logDate)
+                            val nowCal = Calendar.getInstance()
+                            logCal.set(Calendar.YEAR, nowCal.get(Calendar.YEAR))
+                            logCal.set(Calendar.MONTH, nowCal.get(Calendar.MONTH))
+
+                            val logMs = logCal.getTimeInMillis()
+                            var diff = now - logMs
+                            // 跨月补正逻辑保持不变...
+                            if (diff < -25L * 24 * 60 * 60 * 1000) {
+                                logCal.add(Calendar.MONTH, -1)
+                                diff = now - logCal.getTimeInMillis()
+                            } else if (diff > 25L * 24 * 60 * 60 * 1000) {
+                                logCal.add(Calendar.MONTH, 1)
+                                diff = now - logCal.getTimeInMillis()
+                            }
+                            if (diff > 0 && diff > expiryMillis) isExpired = true
+                        }
+                    } catch (ignored: java.lang.Exception) {
+                    }
+                }
+                if (!isExpired) lines.add(trimmedLine)
+            }
+
+            // 2. 将最新的 msg 添加到列表末尾（实现追加）
+            lines.add(msg.trim { it <= ' ' })
+
+            // 3. 写回文件
+            val sb = StringBuilder()
+            for (line in lines) {
+                sb.append(line).append("\n")
+            }
+            Files.write2File(sb.toString(), logFile)
+        } catch (e: java.lang.Exception) {
+            Log.e("AnimalStatus-Log", "Update failed", e)
+        }
+    }
+
+    /**
+     * 辅助方法：提取消息中的标识符（括号之前的内容）
+     */
+    private fun extractId(msg: String): String {
+        var idx = msg.indexOf("[")
+        if (idx == -1) idx = msg.indexOf("【")
+        return if (idx != -1) msg.substring(0, idx).trim { it <= ' ' } else msg.trim { it <= ' ' }
+    }
+
+    /**
+     * 辅助方法：提取消息中的时间部分
+     */
+    private fun extractTimePart(line: String): String? {
+        var start = line.lastIndexOf("[")
+        if (start == -1) start = line.lastIndexOf("【")
+        var end = line.lastIndexOf("]")
+        if (end == -1) end = line.lastIndexOf("】")
+
+        if (start != -1 && end != -1 && end > start) {
+            return line.substring(start + 1, end)
+        }
+        return null
+    }
+
+    fun animalStatus(TAG: String?, msg: String?) {
+        animalStatus("[" + TAG + "]: " + msg)
+    }
+
+    /**
+     * 物理删除特定的动物状态日志 * @param identifier 标识符（即 [ 之前的内容）
+     */
+    @Synchronized
+    fun removeAnimalStatus(identifier: String) {
+        try {
+            val logFile = Files.getAnimalStatusLogFile()
+            val content = Files.readFromFile(logFile)
+            val lines: MutableList<String?> = ArrayList<String?>()
+            var changed = false
+
+            for (line in content.split("\n".toRegex()).dropLastWhile { it.isEmpty() }
+                .toTypedArray()) {
+                if (line.trim { it <= ' ' }.isEmpty()) continue
+                // 如果这行包含我们要删除的标识符，跳过它（即删除）
+                if (line.startsWith(identifier)) {
+                    changed = true
+                    continue
+                }
+                lines.add(line)
+            }
+
+            if (changed) {
+                val sb = StringBuilder()
+                for (line in lines) {
+                    sb.append(line).append("\n")
+                }
+                Files.write2File(sb.toString(), logFile)
+            }
+        } catch (e: java.lang.Exception) {
+            Log.e("AnimalStatus", "Remove failed", e)
+        }
     }
 }
