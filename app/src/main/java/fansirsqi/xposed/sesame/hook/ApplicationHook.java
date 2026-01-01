@@ -608,7 +608,7 @@ public class ApplicationHook {
                         protected void afterHookedMethod(MethodHookParam param) {
 //                            Log.record(TAG, "hook onResume after start");
                             String targetUid = getUserId();
-                            Log.record(TAG, "onResume targetUid: " + targetUid);
+//                            Log.record(TAG, "onResume targetUid: " + targetUid);
                             if (targetUid == null) {
                                 Log.record(TAG, "onResume:用户未登录");
                                 Toast.INSTANCE.show("用户未登录");
@@ -712,13 +712,13 @@ public class ApplicationHook {
                                             Log.record(TAG, "▶️ 首次手动触发，开始运行");
                                         } else {
                                             if (BaseModel.Companion.getManualTriggerAutoSchedule().getValue()) {
-                                                Log.record(TAG, "手动APP触发，已开启");
+                                                Log.record(TAG, "已开启手动打开支付宝运行任务，开始执行");
                                                 TaskRunnerAdapter adapter = new TaskRunnerAdapter();
                                                 adapter.run();
-                                            }
-                                            Log.record(TAG, "手动APP触发，运行");
-                                            return;
-                                        }
+                                                return;
+                                            }else {
+                                                Log.record(TAG, "未开启手动打开支付宝触发运行任务");
+                                            }                                        }
                                     }
 
                                     long currentTime = System.currentTimeMillis();
