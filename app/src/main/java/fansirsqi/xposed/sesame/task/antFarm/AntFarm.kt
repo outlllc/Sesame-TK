@@ -1250,7 +1250,9 @@ class AntFarm : ModelTask() {
                                     // 同步最新状态
                                     syncAnimalStatus(ownerFarmId)
                                     // 遣返
-                                    sendBackAnimal()
+                                    if (sendBackAnimal!!.value) {
+                                        sendBackAnimal()
+                                    }
                                     // 雇佣小鸡
                                     if (hireAnimal!!.value) {
                                         hireAnimal()
