@@ -78,7 +78,7 @@ abstract class BaseCaptchaHandler {
                 return false // 未找到关键视图，返回 false 让其他处理器尝试
             }
             Log.record(TAG, "发现滑动验证文本: ${slideTextInDialog.getText()}")
-            
+            delay(1000L) // 等待界面稳定
             // 执行滑动验证
             return performSlideAndVerify(activity, slideTextInDialog)
         } catch (e: Exception) {
@@ -96,7 +96,6 @@ abstract class BaseCaptchaHandler {
      * @return 如果验证码成功解除返回 true，否则返回 false。
      */
     private suspend fun performSlideAndVerify(activity: Activity, slideTextView: SimpleViewImage): Boolean {
-        Log.record(TAG, "========== 正在查找真实滑块并执行滑动 ==========")
         val sliderView = ViewHierarchyAnalyzer.findActualSliderView(slideTextView) ?: run {
             Log.record(TAG, "未能找到可操作的滑块视图，滑动无法执行。")
             return false
@@ -107,12 +106,10 @@ abstract class BaseCaptchaHandler {
             Log.record(TAG, "计算滑动坐标失败，滑动无法执行。")
             return false
         }
-        Log.record(TAG, "计算出的滑动路径: ($startX, $startY) -> ($endX, $endY)")
-        
+
         // 随机化滑动持续时间，模拟更自然的行为
         val slideDuration = Random.nextLong(SLIDE_DURATION_MIN, SLIDE_DURATION_MAX + 1)
-        Log.record(TAG, "使用滑动持续时间: ${slideDuration}ms")
-        
+
         // 执行滑动
         MotionEventSimulator.simulateSwipe(
             view = sliderView,

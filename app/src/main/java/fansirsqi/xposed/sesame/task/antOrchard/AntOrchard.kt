@@ -612,7 +612,7 @@ class AntOrchard : ModelTask() {
         try {
             // 1. 请求同步数据
             val wua = SecurityBodyHelper.getSecurityBodyData(4).toString()
-            Log.record(TAG, "限时奖励: set Wua $wua")
+
             val response = AntOrchardRpcCall.orchardSyncIndex(wua)
             val root = JSONObject(response)
 

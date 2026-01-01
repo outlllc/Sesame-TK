@@ -1979,14 +1979,17 @@ class AntMember : ModelTask() {
             if (ResChecker.checkRes(TAG, listJo)) {
                 val data = listJo.optJSONObject("data")
                 if (data != null) {
+                    // 用于记录所有已处理的黑名单任务，避免在不同任务组间重复记录
+                    val allProcessedBlacklistTasks = mutableSetOf<String>()
+                    
                     val toComplete = data.optJSONArray("toCompleteVOS")
                     if (toComplete != null) {
-                        processAlchemyTasks(toComplete)
+                        processAlchemyTasks(toComplete, allProcessedBlacklistTasks)
                     }
                     val dailyTaskVO = data.optJSONObject("dailyTaskListVO")
                     if (dailyTaskVO != null) {
-                        processAlchemyTasks(dailyTaskVO.optJSONArray("waitJoinTaskVOS"))
-                        processAlchemyTasks(dailyTaskVO.optJSONArray("waitCompleteTaskVOS"))
+                        processAlchemyTasks(dailyTaskVO.optJSONArray("waitJoinTaskVOS"), allProcessedBlacklistTasks)
+                        processAlchemyTasks(dailyTaskVO.optJSONArray("waitCompleteTaskVOS"), allProcessedBlacklistTasks)
                     }
                 }
             }
@@ -2020,8 +2023,13 @@ class AntMember : ModelTask() {
         }
     }
 
+    /**
+     * 处理芝麻炼金任务列表
+     * @param taskList 任务列表
+     * @param processedBlacklistTasks 已处理的黑名单任务集合（用于避免重复日志）
+     */
     @Throws(JSONException::class)
-    private suspend fun processAlchemyTasks(taskList: JSONArray?) {
+    private suspend fun processAlchemyTasks(taskList: JSONArray?, processedBlacklistTasks: MutableSet<String>) {
         if (taskList == null || taskList.length() == 0) return
 
         for (i in 0..<taskList.length()) {
@@ -2035,7 +2043,11 @@ class AntMember : ModelTask() {
 
             // 使用TaskBlacklist进行黑名单检查
             if (isTaskInBlacklist(title)) {
-                Log.record(TAG, "跳过黑名单任务: $title")
+                // 只有在所有任务组中未处理过时才记录日志
+                if (!processedBlacklistTasks.contains(title)) {
+                    Log.record(TAG, "跳过黑名单任务: $title")
+                    processedBlacklistTasks.add(title)
+                }
                 continue
             }
 

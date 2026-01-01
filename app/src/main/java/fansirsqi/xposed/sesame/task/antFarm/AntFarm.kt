@@ -238,7 +238,6 @@ class AntFarm : ModelTask() {
     private var paradiseCoinExchangeBenefitList: SelectModelField? = null
 
     private var visitAnimal: BooleanModelField? = null
-    private var accelerateToolCount = -1
 
     override fun getFields(): ModelFields {
         val modelFields = ModelFields()
@@ -1954,13 +1953,14 @@ class AntFarm : ModelTask() {
 
             // 加速卡还没用完，等待加速卡用完
             isAccelEnabled && !isAccelLimitReached && accelerateToolCount > 0 -> {
-                Log.farm("加速卡还有 ${accelerateToolCount} 张且未达上限，等加速完再改分")
+                Log.farm("加速卡有${accelerateToolCount}张，已使用${Status.INSTANCE.useAccelerateToolCount}张，" +
+                        "尚未达到今日使用上限，等待加速完成后再改分")
             }
         }
     }
 
     // 抽抽乐执行
-    private fun playChouChouLe() {
+    private suspend fun playChouChouLe() {
         val ccl = ChouChouLe()
         ccl.chouchoule()
         Status.setFlagToday("farm::chouChouLeFinished")
@@ -2011,16 +2011,16 @@ class AntFarm : ModelTask() {
                 val taskStatus = task.getString("taskStatus")
                 val bizKey = task.getString("bizKey")
 
-              //  val taskMode = task.optString("taskMode")
-              //  if(taskMode=="TRIGGER")     continue                 //跳过事件任务
+                //  val taskMode = task.optString("taskMode")
+                //  if(taskMode=="TRIGGER")     continue                 //跳过事件任务
 
                 // 1. 预检查：黑名单与每日上限
                 // 检查任务标题和业务键是否在黑名单中
                 val titleInBlacklist = TaskBlacklist.isTaskInBlacklist(title)
                 val bizKeyInBlacklist = TaskBlacklist.isTaskInBlacklist(bizKey)
-                Log.debug(TAG, "庄园任务检查 - 标题: $title, 业务键: $bizKey, 标题在黑名单: $titleInBlacklist, 业务键在黑名单: $bizKeyInBlacklist")
+
                 if (titleInBlacklist || bizKeyInBlacklist) {
-                    Log.debug(TAG, "跳过黑名单任务: $title ($bizKey)")
+                    Log.record(TAG, "跳过黑名单任务: $title ($bizKey)")
                     continue
                 }
 
@@ -2046,7 +2046,7 @@ class AntFarm : ModelTask() {
                         }
                     }
                 }else{
-                    Log.debug(TAG, "跳过非TODO任务: $title ($bizKey) 状态: $taskStatus")
+                    Log.record(TAG, "跳过非TODO任务: $title ($bizKey) 状态: $taskStatus")
                 }
                 // 3. 额外处理某些即便不是 TODO 状态也可能需要检查的任务（如答题补漏）
                 if ("ANSWER" == bizKey && !Status.hasFlagToday(CACHED_FLAG)) {
@@ -2349,12 +2349,6 @@ class AntFarm : ModelTask() {
                     tool.toolCount = jo.getInt("toolCount")
                     tool.toolHoldLimit = jo.optInt("toolHoldLimit", 20)
                     tempList.add(tool)
-
-                    if (tool.toolType == ToolType.ACCELERATETOOL) {
-                        accelerateToolCount = tool.toolCount
-                        val accelerateToolLimit: Int = tool.toolHoldLimit
-                        Log.record(TAG, "加速卡数量: ${accelerateToolCount}张")
-                    }
 //                    Log.other(TAG, "拥有的道具: ${tool.toolType?.nickName()} | ID: ${tool.toolId} | 数量: ${tool.toolCount}")
                 }
                 farmTools = tempList.toTypedArray()
@@ -2363,6 +2357,8 @@ class AntFarm : ModelTask() {
             Log.printStackTrace(TAG, "listFarmTool err:", t)
         }
     }
+    private val accelerateToolCount: Int
+        get() = farmTools.find { it.toolType == ToolType.ACCELERATETOOL }?.toolCount ?: 0
 
     /**
      * 连续使用加速卡
@@ -2541,6 +2537,7 @@ class AntFarm : ModelTask() {
                             memo = jo.getString("memo")
                             if (ResChecker.checkRes(TAG, jo)) {
                                 Log.farm("使用道具🎭[" + toolType.nickName() + "]#剩余" + (toolCount - 1) + "张")
+                                listFarmTool()
                                 return true
                             } else {
                                 // 针对加速卡：当日达到上限(resultCode=3D16)后，设置当日标记，避免后续重复尝试
@@ -3938,7 +3935,6 @@ class AntFarm : ModelTask() {
         @JsonProperty("foodHaveEatten")
         var foodHaveEatten: Double? = null
 
-        // 2025-12-24 小鸡已经吃的食物量名称是 foodHaveStolen,而不是foodHaveEatten
         @JsonProperty("foodHaveStolen")
         var foodHaveStolen: Double? = null
 

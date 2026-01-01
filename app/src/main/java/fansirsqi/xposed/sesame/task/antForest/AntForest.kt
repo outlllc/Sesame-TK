@@ -4026,7 +4026,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
                 return
             }
 
-            // 步骤2: 按过期时间升序排序，优先使用即将过期的卡，避免浪费
+            // 步骤2: 按过期时间升序排序，，避免浪费
             Collections.sort(
                 doubleClickProps,
                 Comparator { p1: JSONObject?, p2: JSONObject? ->
@@ -4095,11 +4095,13 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         usePropTemplate(bagObject, config, stealthCardConstant!!.value)
     }
 
+
     /**
      * 使用保护罩道具
      * 功能：保护自己的能量不被好友偷取，防止能量被收走。
+     * 优先使用即将过期的限时保护罩，避免浪费。
      * 支持来源：
-     *   - 背包中已有的多种类型保护罩（按优先级）
+     *   - 背包中已有的多种类型保护罩
      *   - 青春特权自动领取（若开启）
      *   - 活力值兑换（若开启且兑换成功）
      *
@@ -4109,51 +4111,98 @@ class AntForest : ModelTask(), EnergyCollectCallback {
         try {
             Log.record(TAG, "尝试使用保护罩...")
 
-            // 定义支持的保护罩类型（按使用优先级排序）
+            // 定义支持的保护罩类型
             val shieldTypes = listOf(
                 "LIMIT_TIME_ENERGY_SHIELD_TREE",   // 限时森林保护罩（通常来自活动/青春特权）
+                "LIMIT_TIME_ENERGY_SHIELD",        // 限时能量保护罩
                 "ENERGY_SHIELD_YONGJIU",           // 限时能量保护罩（可能为旧版道具）
                 "RUIHE_ENERGY_SHIELD",             // 瑞和能量保护罩（合作方专属？）
+                "PK_SEASON1_ENERGY_SHIELD_TREE",   // PK赛限定保护罩
                 "ENERGY_SHIELD"                    // 通用能量保护罩
             )
 
-            var jo: JSONObject? = null
-
-            // 1. 先从当前背包中按优先级查找
-            for (type in shieldTypes) {
-                jo = findPropBag(bagObject, type)
-                if (jo != null) break
-            }
-
-            // 2. 若未找到，且青春特权开启 → 尝试领取并重新查
-            if (jo == null && youthPrivilege?.value == true) {
-                Log.record(TAG, "尝试通过青春特权获取保护罩...")
-                if (youthPrivilege()) {
-                    val freshBag = querySelfHome()
-                    jo = findPropBag(freshBag, "LIMIT_TIME_ENERGY_SHIELD_TREE")
+            // 步骤1: 从背包中收集所有可用的保护罩
+            val availableShields: MutableList<JSONObject> = ArrayList()
+            val forestPropVOList = bagObject?.optJSONArray("forestPropVOList")
+            
+            if (forestPropVOList != null) {
+                for (i in 0..<forestPropVOList.length()) {
+                    val prop = forestPropVOList.optJSONObject(i) ?: continue
+                    val propType = prop.optJSONObject("propConfigVO")?.optString("propType") ?: ""
+                    
+                    if (shieldTypes.contains(propType)) {
+                        availableShields.add(prop)
+                    }
                 }
             }
 
-            // 3. 若仍未找到，且活力值兑换开启 → 尝试兑换
-            if (jo == null && shieldCardConstant?.value == true) {
-                Log.record(TAG, "尝试通过活力值兑换保护罩...")
-                if (exchangeEnergyShield()) {
-                    // 兑换后通常获得的是 LIMIT_TIME_ENERGY_SHIELD（注意不是 TREE 后缀）
-                    jo = findPropBag(querySelfHome(), "LIMIT_TIME_ENERGY_SHIELD")
+            // 步骤2: 如果没有找到保护罩，尝试获取
+            if (availableShields.isEmpty()) {
+                // 2.1 若青春特权开启 → 尝试领取并重新查找
+                if (youthPrivilege?.value == true) {
+                    Log.record(TAG, "尝试通过青春特权获取保护罩...")
+                    if (youthPrivilege()) {
+                        val freshBag = querySelfHome()
+                        val freshPropList = freshBag?.optJSONArray("forestPropVOList")
+                        if (freshPropList != null) {
+                            for (i in 0..<freshPropList.length()) {
+                                val prop = freshPropList.optJSONObject(i) ?: continue
+                                val propType = prop.optJSONObject("propConfigVO")?.optString("propType") ?: ""
+                                
+                                if ("LIMIT_TIME_ENERGY_SHIELD_TREE" == propType) {
+                                    availableShields.add(prop)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2.2 若仍未找到，且活力值兑换开启 → 尝试兑换
+                if (availableShields.isEmpty() && shieldCardConstant?.value == true) {
+                    Log.record(TAG, "尝试通过活力值兑换保护罩...")
+                    if (exchangeEnergyShield()) {
+                        // 兑换后通常获得的是 LIMIT_TIME_ENERGY_SHIELD
+                        val exchangeBag = querySelfHome()
+                        val exchangePropList = exchangeBag?.optJSONArray("forestPropVOList")
+                        if (exchangePropList != null) {
+                            for (i in 0..<exchangePropList.length()) {
+                                val prop = exchangePropList.optJSONObject(i) ?: continue
+                                val propType = prop.optJSONObject("propConfigVO")?.optString("propType") ?: ""
+                                
+                                if ("LIMIT_TIME_ENERGY_SHIELD" == propType) {
+                                    availableShields.add(prop)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // 4. 如果找到，立即使用
-            if (jo != null) {
-                Log.record(TAG, "找到保护罩，准备使用: $jo")
-                if (usePropBag(jo)) {
-                    return // 使用成功，直接退出
+            // 步骤3: 按过期时间升序排序，优先使用即将过期的保护罩
+            if (availableShields.isNotEmpty()) {
+                Collections.sort(
+                    availableShields,
+                    Comparator { p1: JSONObject?, p2: JSONObject? ->
+                        val expireTime1 = p1!!.optLong("recentExpireTime", Long.MAX_VALUE)
+                        val expireTime2 = p2!!.optLong("recentExpireTime", Long.MAX_VALUE)
+                        expireTime1.compareTo(expireTime2)
+                    })
+
+                // 步骤4: 逐个尝试使用保护罩
+                for (shieldObj in availableShields) {
+                    val propType = shieldObj.optJSONObject("propConfigVO")?.optString("propType") ?: ""
+                    val propName = shieldObj.optJSONObject("propConfigVO")?.optString("propName") ?: propType
+                    Log.record(TAG, "尝试使用保护罩: $propName")
+                    if (usePropBag(shieldObj)) {
+                        Log.record(TAG, "保护罩使用成功: $propName")
+                        return // 使用成功，直接退出
+                    } else {
+                        Log.record(TAG, "保护罩使用失败: $propName，尝试下一个...")
+                    }
                 }
             }
-
-            // 5. 未使用成功（无论是否找到），刷新主页确保状态同步
-            // Log.record(TAG, "背包中未找到任何可用保护罩。")
-            // updateSelfHomePage()
+            // 步骤5: 未使用成功（无论是否找到）
+            Log.record(TAG, "背包中未找到或无法使用任何可用保护罩")
 
         } catch (th: Throwable) {
             Log.printStackTrace(TAG, "useShieldCard err", th)
