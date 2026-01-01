@@ -11,6 +11,7 @@ import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.entity.MapperEntity
 import fansirsqi.xposed.sesame.entity.OtherEntityProvider.farmFamilyOption
 import fansirsqi.xposed.sesame.entity.ParadiseCoinBenefit
+import fansirsqi.xposed.sesame.hook.CoroutineScheduler
 import fansirsqi.xposed.sesame.hook.Toast
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit.addIntervalLimit
 import fansirsqi.xposed.sesame.model.BaseModel
@@ -417,7 +418,7 @@ class AntFarm : ModelTask() {
                 false
             ).also { useAccelerateToolContinue = it })
         modelFields.addField(
-            IntegerModelField("remainingTime", "饲料剩余时间大于多少时直接使用加速（分钟）（-1关闭）", 50).also { remainingTime = it }
+            IntegerModelField("remainingTime", "饲料剩余时间大于多少时直接使用加速（分钟）（-1关闭）", 20).also { remainingTime = it }
         )
         modelFields.addField(
             BooleanModelField(
@@ -731,7 +732,6 @@ class AntFarm : ModelTask() {
             //家庭
             if (family!!.value) {
                 //                family();
-
                 AntFarmFamily.run(familyOptions!!, notInviteList!!)
                 tc.countDebug("家庭任务")
             }
@@ -962,8 +962,8 @@ class AntFarm : ModelTask() {
             val sleepMinutesInt = sleepMinutes!!.value
             val animalWakeUpTimeCalendar = animalSleepTimeCalendar.clone() as Calendar
             animalWakeUpTimeCalendar.add(Calendar.MINUTE, sleepMinutesInt)
-            val animalSleepTime = animalSleepTimeCalendar.getTimeInMillis()
-            val animalWakeUpTime = animalWakeUpTimeCalendar.getTimeInMillis()
+            var animalSleepTime = animalSleepTimeCalendar.getTimeInMillis()
+            var animalWakeUpTime = animalWakeUpTimeCalendar.getTimeInMillis()
             if (animalSleepTime > animalWakeUpTime) {
                 Log.record(TAG, "小鸡睡觉设置有误，请重新设置")
                 return
@@ -977,39 +977,82 @@ class AntFarm : ModelTask() {
                 Log.record(TAG, "已错过小鸡今日睡觉时间")
                 return
             }
+
+            // 检查是否是昨晚开始的觉还没睡完
+            if (now.before(animalWakeUpTimeCalendar)) {
+                val lastNightSleepCalendar = animalSleepTimeCalendar.clone() as Calendar
+                lastNightSleepCalendar.add(Calendar.DAY_OF_MONTH, -1)
+                val lastNightWakeUpCalendar = animalWakeUpTimeCalendar.clone() as Calendar
+                lastNightWakeUpCalendar.add(Calendar.DAY_OF_MONTH, -1)
+                if (now.after(lastNightSleepCalendar) && now.before(lastNightWakeUpCalendar)) {
+                    animalSleepTime = lastNightSleepCalendar.timeInMillis
+                    animalWakeUpTime = lastNightWakeUpCalendar.timeInMillis
+                }
+            }
+
             val sleepTaskId = "AS|$animalSleepTime"
             val wakeUpTaskId = "AW|$animalWakeUpTime"
             if (!hasChildTask(sleepTaskId) && !afterSleepTime) {
-                addChildTask(
-                    ChildModelTask(
-                        sleepTaskId,
-                        "AS",
-                        suspendRunnable = { this.animalSleepNow() },
-                        animalSleepTime
-                    )
+                val maskName = UserMap.getCurrentMaskName()
+                val logIdentifier = "${maskName}小鸡睡觉计划"
+                val task = ChildModelTask(
+                    sleepTaskId,
+                    "AS",
+                    suspendRunnable = { this.animalSleepNow() },
+                    animalSleepTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已执行", 1)
+                    } else {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
                     "添加定时睡觉🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
                         animalSleepTime
                     ) + "]执行"
                 )
+                Log.animalStatus("${logIdentifier}[${
+                    TimeUtil.getCommonDate(animalSleepTime)}]",24)
+            } else if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus){
+                Log.animalStatus("${UserMap.getCurrentMaskName()}小鸡正在睡觉${TimeUtil.getCommonDate(System.currentTimeMillis())}",10)
             }
             if (!hasChildTask(wakeUpTaskId) && !afterWakeUpTime) {
-                addChildTask(
-                    ChildModelTask(
-                        wakeUpTaskId,
-                        "AW",
-                        suspendRunnable = { this.animalWakeUpNow() },
-                        animalWakeUpTime
-                    )
+                val maskName = UserMap.getCurrentMaskName()
+                val logIdentifier = "${maskName}小鸡起床计划"
+                val task = ChildModelTask(
+                    wakeUpTaskId,
+                    "AW",
+                    suspendRunnable = { this.animalWakeUpNow() },
+                    animalWakeUpTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        }] 已执行", 1)
+                    } else {
+                        Log.animalStatus("$logIdentifier[${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        }] 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
                     "添加定时起床🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
                         animalWakeUpTime
                     ) + "]执行"
                 )
+                Log.animalStatus("${logIdentifier}[${
+                    TimeUtil.getCommonDate(animalWakeUpTime)}]",24)
             }
             if (afterSleepTime) {
                 if (Status.canAnimalSleep()) {
@@ -1030,6 +1073,13 @@ class AntFarm : ModelTask() {
         try {
             val userId = UserMap.currentUid
             val jo = JSONObject(AntFarmRpcCall.enterFarm(userId, userId))
+
+            // 关键：先获取原始字符串 s
+            val s = AntFarmRpcCall.enterFarm(userId, userId)
+            // 打印庄园原始网页数据json到 Log.other，debug用
+//            Log.other(TAG, "enterFarm 原始数据: $s")
+            if (s.isNullOrEmpty()) return null
+
             if (ResChecker.checkRes(TAG, jo)) {
                 rewardProductNum =
                     jo.getJSONObject("dynamicGlobalConfig").getString("rewardProductNum")
@@ -1187,33 +1237,48 @@ class AntFarm : ModelTask() {
                                     ", 执行时间=" + TimeUtil.getCommonDate(nextFeedTime) + "]"
                         )
                         val taskId = "FA|$ownerFarmId"
-                        addChildTask(
-                            ChildModelTask(
-                                id = taskId,
-                                group = "FA",
-                                suspendRunnable = {
-                                    try {
-                                        Log.record(TAG, "🔔 蹲点投喂任务触发")
-                                        // 重新进入庄园，获取最新状态
-                                        enterFarm()
-                                        // 同步最新状态
-                                        syncAnimalStatus(ownerFarmId)
-                                        // 遣返
-                                        sendBackAnimal()
-                                        // 雇佣小鸡
-                                        hireAnimal()
-                                        // 喂鸡
-                                        handleAutoFeedAnimal()
-                                        Log.record(TAG, "🔄 下一次蹲点任务已创建")
-                                    } catch (e: Exception) {
-                                        Log.error(TAG, "蹲点投喂任务执行失败: ${e.message}")
-                                        Log.printStackTrace(TAG, e)
-                                    }
-                                },
-                                execTime = nextFeedTime
-                            )
+                        val maskName = UserMap.getCurrentMaskName()
+                        val logIdentifier = "${maskName}蹲点喂鸡计划"
+                        val task = ChildModelTask(
+                            id = taskId,
+                            group = "FA",
+                            suspendRunnable = {
+                                try {
+                                    Log.record(TAG, "🔔 蹲点投喂任务触发")
+                                    // 重新进入庄园，获取最新状态
+                                    enterFarm()
+                                    // 同步最新状态
+                                    syncAnimalStatus(ownerFarmId)
+                                    // 遣返
+                                    sendBackAnimal()
+                                    // 雇佣小鸡
+                                    hireAnimal()
+                                    // 喂鸡
+                                    handleAutoFeedAnimal()
+                                    Log.record(TAG, "🔄 下一次蹲点任务已创建")
+                                } catch (e: Exception) {
+                                    Log.error(TAG, "蹲点投喂任务执行失败: ${e.message}")
+                                    Log.printStackTrace(TAG, e)
+                                }
+                            },
+                            execTime = nextFeedTime
                         )
-                        Log.farm(UserMap.getCurrentMaskName() + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
+                        task.onCompleted = { success ->
+                            if (success) {
+                                Log.animalStatus("$logIdentifier[${TimeUtil.getCommonDate(nextFeedTime)}] 已执行", 1)
+                            } else {
+                                Log.animalStatus("${logIdentifier}[${TimeUtil.getCommonDate(nextFeedTime)}] 已取消", 1)
+                            }
+                        }
+                        addChildTask(task)
+                        Log.record(
+                            TAG,
+                            "添加蹲点投喂🥣[" + UserMap.getCurrentMaskName() + "]在[" +
+                                    TimeUtil.getCommonDate(nextFeedTime) + "]执行"
+                        )
+                        Log.farm(maskName + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
+                        Log.animalStatus("${logIdentifier}[${TimeUtil.getCommonDate(nextFeedTime)}]",10)
+                        if(remainingSec > 0) setAlarm("FA", (remainingSec * 1000).toLong())
                     } else {
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
                         if (feedAnimal(ownerFarmId)) {
@@ -1300,7 +1365,10 @@ class AntFarm : ModelTask() {
         operateType: String?
     ): JSONObject? {
         try {
-            return JSONObject(AntFarmRpcCall.syncAnimalStatus(farmId, operTag, operateType))
+            val s = AntFarmRpcCall.syncAnimalStatus(farmId, operTag, operateType)
+            // 打印庄园原始网页json数据到 Log.other ,debug用
+//            Log.other(TAG, "syncAnimalStatus 原始数据: $s")
+            return JSONObject(s)
         } catch (e: Exception) {
             Log.printStackTrace(TAG, e)
             return null
@@ -1309,6 +1377,10 @@ class AntFarm : ModelTask() {
 
     private fun syncAnimalStatus(farmId: String?) {
         try {
+            // 获取调用者信息（堆栈索引 1 为调用此函数的位置）
+            val caller = Throwable().stackTrace.getOrNull(1)
+            val callerInfo = caller?.let { "${it.methodName}(${it.fileName}:${it.lineNumber})" } ?: "unknown"
+            Log.record(TAG, "🔄 同步庄园状态 | 调用位置: $callerInfo")
             val jo = syncAnimalStatus(farmId, "SYNC_RESUME", "QUERY_ALL")
             parseSyncAnimalStatusResponse(jo!!)
         } catch (t: Throwable) {
@@ -2183,6 +2255,50 @@ class AntFarm : ModelTask() {
                     } else {
                         Log.farm("投喂小鸡🥣[180g]#投喂成功")
                     }
+
+                    try {
+                        val taskId = "KC|$ownerFarmId"
+                        val maskName = UserMap.getCurrentMaskName()
+                        val logIdentifier = "${maskName}蹲点赶鸡计划"
+                        val KcTime = TimeUtil.getCommonDate(System.currentTimeMillis() + 30 * 60 * 1000L)
+                        val task = ChildModelTask(
+                            id = taskId,
+                            group = "KC",
+                            suspendRunnable = {
+                                try {
+                                    Log.record(TAG, "🔔 蹲点赶鸡任务触发")
+                                    // 重新进入庄园，获取最新状态
+                                    enterFarm()
+                                    // 同步最新状态
+                                    syncAnimalStatus(ownerFarmId)
+                                    sendBackAnimal()
+                                } catch (e: Exception) {
+                                    Log.error(TAG, "蹲点赶鸡任务执行失败: ${e.message}")
+                                    Log.printStackTrace(TAG, e)
+                                }
+                            },
+                            execTime = System.currentTimeMillis() + 30 * 60 * 1000L  //30分钟
+                        )
+                        // 设置完成回调
+                        task.onCompleted = { success ->
+                            if (success) {
+                                Log.animalStatus("$logIdentifier[${KcTime}] 已执行", 1)
+                            } else {
+                                // 如果任务被取消或报错
+                                Log.animalStatus("$logIdentifier[${KcTime}] 已取消", 1)
+                            }
+                        }
+                        addChildTask(task)
+
+
+                        Log.farm(UserMap.getCurrentMaskName() + "30分钟后${KcTime}蹲点赶小鸡")
+                        Log.animalStatus("${logIdentifier}[${KcTime}]",1)
+                        setAlarm("KC", 30 * 60 * 1000L)
+
+                    } catch (e: Exception) {
+                        Log.printStackTrace(TAG, "创建蹲点赶鸡失败: ${e.message}",e)
+                    }
+
                     return true
                 } else {
                     // 检查特定的错误码
@@ -2702,8 +2818,20 @@ class AntFarm : ModelTask() {
                 val animal: Animal =
                     objectMapper.readValue(animalJson.toString(), Animal::class.java)
                 animalList.add(animal)
+                // debug小鸡状态的Log
+//                Log.other("animalID:" + animal.animalId + ",startEatTime=" + TimeUtil.getCommonDate(animal.startEatTime) + ",consumeSpeed=" + animal.consumeSpeed
+//                + ",foodHaveEatten=" + animal.foodHaveEatten + ",foodHaveStolen=" + animal.foodHaveStolen + ",animalFeedStatus=" + animal.animalFeedStatus
+//                    + ",animalInteractStatus=" + animal.animalInteractStatus
+//                )
                 if (animal.masterFarmId == ownerFarmId) {
                     ownerAnimal = animal
+                    // debug小鸡状态的Log
+                    Log.other(TAG,"SyncAnimalStatus()调用；Countdown=" + String.format(
+                        "%02d:%02d:%02d",
+                        countdown!! / 3600,
+                        (countdown!! % 3600) / 60,
+                        countdown!! % 60
+                    ))
                 }
                 //                Log.record(TAG, "当前动物：" + animal.toString());
             }
@@ -3787,8 +3915,12 @@ class AntFarm : ModelTask() {
         @JsonProperty("foodHaveEatten")
         var foodHaveEatten: Double? = null
 
+        // 2025-12-24 小鸡已经吃的食物量名称是 foodHaveStolen,而不是foodHaveEatten
         @JsonProperty("foodHaveStolen")
         var foodHaveStolen: Double? = null
+
+        @JsonProperty("countdown")
+        var animalCountdown: Int? = null
 
         @JsonProperty("animalStatusVO")
         fun unmarshalAnimalStatusVO(map: MutableMap<String?, Any?>?) {
@@ -4360,5 +4492,39 @@ class AntFarm : ModelTask() {
         private const val FARM_ANSWER_CACHE_KEY = "farmAnswerQuestionCache"
         private const val ANSWERED_FLAG = "farmQuestion::answered" // 今日是否已答题
         private const val CACHED_FLAG = "farmQuestion::cache" // 是否已缓存明日答案
+    }
+
+    /**
+     * 通用闹钟设置方法
+     * @param type 任务类型，如 "KC" (赶鸡), "AW" (起床), "AS" (睡觉)
+     * @param delayMillis 延迟毫秒数
+     */
+    private fun setAlarm(type: String, delayMillis: Long) {
+        try {
+            val context = fansirsqi.xposed.sesame.SesameApplication.getContext()
+                ?: fansirsqi.xposed.sesame.hook.ApplicationHook.getAppContext()
+                ?: return
+
+            // 使用框架统一的调度器
+            val scheduler = CoroutineScheduler(context)
+            val triggerAtMillis = System.currentTimeMillis() + delayMillis
+
+            // requestCode 依然保持唯一性
+            val requestCode = (type + ownerFarmId).hashCode()
+
+            // 注意：CoroutineScheduler.scheduleWakeupAlarm 发送的是固定 Action
+            // 如果想保留 AntFarmReceiver 的独立逻辑，我们需要对 CoroutineScheduler 做一点点扩展
+            // 或者简单点，直接在 AntFarm 中复用它的逻辑：
+
+            scheduler.scheduleWakeupAlarm(
+                triggerAtMillis = triggerAtMillis,
+                requestCode = requestCode,
+                isMainAlarm = false,
+                customAction = "ACTION_ALARM_FARM"
+            )
+
+        } catch (e: Exception) {
+            Log.error(TAG, "设置闹钟[${type}]失败: ${e.message}")
+        }
     }
 }
