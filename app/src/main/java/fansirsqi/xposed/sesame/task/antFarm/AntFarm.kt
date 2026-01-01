@@ -238,6 +238,7 @@ class AntFarm : ModelTask() {
     private var paradiseCoinExchangeBenefitList: SelectModelField? = null
 
     private var visitAnimal: BooleanModelField? = null
+    private var accelerateToolCount = -1
 
     override fun getFields(): ModelFields {
         val modelFields = ModelFields()
@@ -1135,7 +1136,7 @@ class AntFarm : ModelTask() {
     /**
      * 自动喂鸡
      */
-    private suspend fun handleAutoFeedAnimal() {
+    private suspend fun handleAutoFeedAnimal(isChildTask: Boolean = false) {
         if (AnimalInteractStatus.HOME.name != ownerAnimal.animalInteractStatus) {
             return  // 小鸡不在家，不执行喂养逻辑
         }
@@ -1215,6 +1216,17 @@ class AntFarm : ModelTask() {
             }
         }
 
+        // 在蹲点喂食逻辑中判断是否需要执行游戏改分及抽抽乐
+        Log.farm("isChildTask=" + isChildTask)
+        if (isChildTask) {
+            if (recordFarmGame!!.value) {
+                handleFarmGameLogic()
+            }
+            if (enableChouchoule!!.value) {
+                handleChouChouLeLogic()
+            }
+        }
+
         // 5. 计算并安排下一次自动喂食任务（仅当小鸡不在睡觉时）
         if (AnimalFeedStatus.SLEEPY.name != ownerAnimal.animalFeedStatus) {
             try {
@@ -1258,7 +1270,7 @@ class AntFarm : ModelTask() {
                                         hireAnimal()
                                     }
                                     // 喂鸡
-                                    handleAutoFeedAnimal()
+                                    handleAutoFeedAnimal(true)
                                     Log.record(TAG, "🔄 下一次蹲点任务已创建")
                                 } catch (e: Exception) {
                                     Log.error(TAG, "蹲点投喂任务执行失败: ${e.message}")
@@ -1913,11 +1925,12 @@ class AntFarm : ModelTask() {
         recordFarmGame(GameType.starGame)
         recordFarmGame(GameType.jumpGame)
         Status.setFlagToday("farm::farmGameFinished")
+        Log.farm("今日庄园游戏改分已完成")
     }
     private suspend fun handleFarmGameLogic() {
         // 1. 检查游戏改分是否已完成
         if (Status.hasFlagToday("farm::farmGameFinished")) {
-            Log.farm("今日庄园游戏改分已完成")
+            Log.record("今日庄园游戏改分已完成")
             return
         }
         val isAccelEnabled = useAccelerateTool!!.value
@@ -1925,7 +1938,7 @@ class AntFarm : ModelTask() {
         val isInsideTimeRange = farmGameTime!!.value.any { TimeUtil.checkNowInTimeRange(it) }
         when {
             // 开启了使用加速卡，且加速卡已达上限
-            isAccelEnabled && isAccelLimitReached -> {
+            isAccelEnabled && (isAccelLimitReached || accelerateToolCount <= 0) -> {
                 syncAnimalStatus(ownerFarmId)
                 // 饲料缺口在180g以上时先领饲料
                 if (foodStock < foodStockLimit - 180) {
@@ -1945,22 +1958,23 @@ class AntFarm : ModelTask() {
             }
 
             // 加速卡还没用完，等待加速卡用完
-            isAccelEnabled && !isAccelLimitReached -> {
-                Log.farm("加速卡尚未达到今日上限，等待加速完成后再改分")
+            isAccelEnabled && !isAccelLimitReached && accelerateToolCount > 0 -> {
+                Log.farm("加速卡还有 ${accelerateToolCount} 张且未达上限，等加速完再改分")
             }
         }
     }
 
     // 抽抽乐执行
-    private suspend fun playChouChouLe() {
+    private fun playChouChouLe() {
         val ccl = ChouChouLe()
         ccl.chouchoule()
         Status.setFlagToday("farm::chouChouLeFinished")
+        Log.farm("今日抽抽乐已完成")
     }
     private suspend fun handleChouChouLeLogic() {
         // 1. 检查抽抽乐是否已完成
         if (Status.hasFlagToday("farm::chouChouLeFinished")) {
-            Log.farm("今日抽抽乐已完成")
+            Log.record("今日抽抽乐已完成")
             return
         }
         val isGameFinished = Status.hasFlagToday("farm::farmGameFinished")
@@ -2002,8 +2016,8 @@ class AntFarm : ModelTask() {
                 val taskStatus = task.getString("taskStatus")
                 val bizKey = task.getString("bizKey")
 
-                //  val taskMode = task.optString("taskMode")
-                //  if(taskMode=="TRIGGER")     continue                 //跳过事件任务
+              //  val taskMode = task.optString("taskMode")
+              //  if(taskMode=="TRIGGER")     continue                 //跳过事件任务
 
                 // 1. 预检查：黑名单与每日上限
                 // 检查任务标题和业务键是否在黑名单中
@@ -2327,6 +2341,8 @@ class AntFarm : ModelTask() {
     private fun listFarmTool() {
         try {
             var jo = JSONObject(AntFarmRpcCall.listFarmTool())
+            // 打印原始 JSON 数据
+//            Log.other(TAG, "listFarmTool 原始数据: $jo")
             if (ResChecker.checkRes(TAG, jo)) {
                 val jaToolList = jo.getJSONArray("toolList")
                 val tempList = mutableListOf<FarmTool>()
@@ -2338,6 +2354,13 @@ class AntFarm : ModelTask() {
                     tool.toolCount = jo.getInt("toolCount")
                     tool.toolHoldLimit = jo.optInt("toolHoldLimit", 20)
                     tempList.add(tool)
+
+                    if (tool.toolType == ToolType.ACCELERATETOOL) {
+                        accelerateToolCount = tool.toolCount
+                        val accelerateToolLimit: Int = tool.toolHoldLimit
+                        Log.record(TAG, "加速卡数量: ${accelerateToolCount}张")
+                    }
+//                    Log.other(TAG, "拥有的道具: ${tool.toolType?.nickName()} | ID: ${tool.toolId} | 数量: ${tool.toolCount}")
                 }
                 farmTools = tempList.toTypedArray()
             }
@@ -2831,6 +2854,7 @@ class AntFarm : ModelTask() {
                     ownerAnimal = animal
                     // debug小鸡状态的Log
                     Log.other(TAG,"SyncAnimalStatus()调用；Countdown=" + String.format(
+                        Locale.CHINA,
                         "%02d:%02d:%02d",
                         countdown!! / 3600,
                         (countdown!! % 3600) / 60,
