@@ -1252,7 +1252,9 @@ class AntFarm : ModelTask() {
                                     // 遣返
                                     sendBackAnimal()
                                     // 雇佣小鸡
-                                    hireAnimal()
+                                    if (hireAnimal!!.value) {
+                                        hireAnimal()
+                                    }
                                     // 喂鸡
                                     handleAutoFeedAnimal()
                                     Log.record(TAG, "🔄 下一次蹲点任务已创建")
