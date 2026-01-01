@@ -1944,12 +1944,7 @@ class AntFarm : ModelTask() {
                 if (foodStock < foodStockLimit - 180) {
                     receiveFarmAwards()
                 }
-                // 满足 180g 预留空间则执行
-                if (foodStock >= foodStockLimit - 180) {
-                    playAllFarmGames()
-                } else {
-                    Log.farm("加速卡已达上限，但饲料缺口仍超过180g，暂不改分以防浪费")
-                }
+                playAllFarmGames()
             }
 
             // 未启用加速卡，且处于用户设定的时间段内（原逻辑）
