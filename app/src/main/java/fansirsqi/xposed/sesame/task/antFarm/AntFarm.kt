@@ -2156,6 +2156,15 @@ class AntFarm : ModelTask() {
                             break
                         }
 
+                        // 针对连续使用加速卡时的逻辑
+                        if (!Status.hasFlagToday("farm::farmGameFinished") &&
+                            foodStock >= (foodStockLimit - 180) && recordFarmGame!!.value) {
+                            unreceiveTaskAward++
+                            Log.farm("当日游戏改分未完成，预留180g饲料空间，现有饲料${foodStock}g")
+                            isFeedFull = true
+                            break
+                        }
+
                         if (awardCount > foodStockLeft) {
                             if (!isNight) {
                                 // 20点前，为了不浪费，跳过当前奖励。
@@ -2174,15 +2183,6 @@ class AntFarm : ModelTask() {
                                     continue
                                 }
                             }
-                        }
-
-                        // 针对连续使用加速卡时的逻辑
-                        if (!Status.hasFlagToday("farm::farmGameFinished") &&
-                            foodStock >= (foodStockLimit - 180) && recordFarmGame!!.value) {
-                            unreceiveTaskAward++
-                            Log.farm("当日游戏改分未完成，预留180g饲料空间，现有饲料${foodStock}g")
-                            isFeedFull = true
-                            break
                         }
 
                         val receiveTaskAwardjo = JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId))
@@ -2282,12 +2282,9 @@ class AntFarm : ModelTask() {
                 val jo = JSONObject(AntFarmRpcCall.feedAnimal(farmId))
                 if (ResChecker.checkRes(TAG, jo)) {
                     // 安全获取foodStock字段，如果不存在则显示未知
-                    val remainingFood = jo.optInt("foodStock", -1)
-                    if (remainingFood >= 0) {
-                        Log.farm("投喂小鸡🥣[180g]#剩余" + remainingFood + "g")
-                    } else {
-                        Log.farm("投喂小鸡🥣[180g]#投喂成功")
-                    }
+                    val remainingFood = jo.optInt("foodStock", 0).coerceAtLeast(0)
+                    Log.farm("${UserMap.getCurrentMaskName()}投喂小鸡🥣[180g]#剩余饲料${remainingFood}g")
+                    val test = "\uD83E\uDD63"
 
                     try {
                         val taskId = "KC|$ownerFarmId"
@@ -2788,6 +2785,20 @@ class AntFarm : ModelTask() {
                 finalScore = jo.getJSONObject("emotionInfo").getDouble("finalScore")
             }
             val subFarmVO = jo.getJSONObject("subFarmVO")
+
+            val newFarmId = subFarmVO.getString("farmId")
+
+            // 【关键点】检测账号切换
+            if (!ownerFarmId.isNullOrEmpty() && ownerFarmId != newFarmId) {
+                Log.record(TAG, "检测到账号切换，清理旧账号[${ownerFarmId}]的闹钟")
+                val context = fansirsqi.xposed.sesame.SesameApplication.getContext()
+                    ?: fansirsqi.xposed.sesame.hook.ApplicationHook.getAppContext()
+                if (context != null) {
+                    AntFarmPreciseWorker.cancelAll(context, ownerFarmId!!)
+                }
+            }
+            ownerFarmId = newFarmId
+
             // 解析服务端返回的“是否已使用加饭卡”状态
             serverUseBigEaterTool = subFarmVO.optBoolean("useBigEaterTool", false)
             if (subFarmVO.has("foodStock")) {
@@ -4544,26 +4555,25 @@ class AntFarm : ModelTask() {
                 ?: fansirsqi.xposed.sesame.hook.ApplicationHook.getAppContext()
                 ?: return
 
-            // 使用框架统一的调度器
-            val scheduler = CoroutineScheduler(context)
+            val farmId = ownerFarmId
+            if (farmId.isNullOrEmpty()) {
+                Log.error(TAG, "设置闹钟[${type}]失败: ownerFarmId 为空")
+                return
+            }
+
             val triggerAtMillis = System.currentTimeMillis() + delayMillis
 
-            // requestCode 依然保持唯一性
-            val requestCode = (type + ownerFarmId).hashCode()
-
-            // 注意：CoroutineScheduler.scheduleWakeupAlarm 发送的是固定 Action
-            // 如果想保留 AntFarmReceiver 的独立逻辑，我们需要对 CoroutineScheduler 做一点点扩展
-            // 或者简单点，直接在 AntFarm 中复用它的逻辑：
-
-            scheduler.scheduleWakeupAlarm(
+            // 使用专门的精准工作器进行调度
+            AntFarmPreciseWorker.schedule(
+                context = context,
                 triggerAtMillis = triggerAtMillis,
-                requestCode = requestCode,
-                isMainAlarm = false,
-                customAction = "ACTION_ALARM_FARM"
+                type = type,
+                ownerFarmId = farmId
             )
 
         } catch (e: Exception) {
             Log.error(TAG, "设置闹钟[${type}]失败: ${e.message}")
+            Log.printStackTrace(TAG, e)
         }
     }
 }

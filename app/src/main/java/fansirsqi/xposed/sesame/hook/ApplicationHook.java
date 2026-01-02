@@ -53,6 +53,7 @@ import fansirsqi.xposed.sesame.newutil.DataStore;
 import fansirsqi.xposed.sesame.task.MainTask;
 import fansirsqi.xposed.sesame.task.ModelTask;
 import fansirsqi.xposed.sesame.task.TaskRunnerAdapter;
+import fansirsqi.xposed.sesame.task.antFarm.AntFarmPreciseWorker;
 import fansirsqi.xposed.sesame.util.maps.UserMap;
 import fansirsqi.xposed.sesame.hook.rpc.debug.DebugRpc;
 import io.github.libxposed.api.XposedInterface;
@@ -1330,8 +1331,7 @@ public class ApplicationHook {
                                 Log.record(TAG, "✅ 模块已初始化，开始执行任务EXECUTE");
                                 execHandler();
                             } else {
-                                // Service 已就绪，可以初始化
-                                Log.record(TAG, "⚠️ 模块未初始化，开始初始化流程EXECUTE");
+                                // Service 已就绪，开始初始化流程EXECUTE");
                                 GlobalThreadPools.INSTANCE.execute(() -> {
                                     if (initHandler(true)) {
                                         Log.record(TAG, "✅ 初始化成功，开始执行任务EXECUTE");
@@ -1381,6 +1381,9 @@ public class ApplicationHook {
                                     Log.printStackTrace(TAG, th);
                                 }
                             });
+                            break;
+                        case AntFarmPreciseWorker.ACTION_PREC_KC_FA:
+                            AntFarmPreciseWorker.INSTANCE.receive(context, intent);
                             break;
                         default:
                             // 协程调度器会自动处理任务触发，无需额外处理
@@ -1433,6 +1436,7 @@ public class ApplicationHook {
         intentFilter.addAction(BroadcastActions.STATUS); // 查询支付宝状态的动作
         intentFilter.addAction(BroadcastActions.RPC_TEST); // 调试RPC的动作
         intentFilter.addAction(BroadcastActions.STOP); //手动停止任务运行
+        intentFilter.addAction(AntFarmPreciseWorker.ACTION_PREC_KC_FA); // 精准子任务 Action
         return intentFilter;
     }
 
