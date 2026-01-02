@@ -148,6 +148,19 @@ fun LogViewerScreen(
         }
     }
 
+    // 智能自动滚动控制
+    LaunchedEffect(listState.canScrollForward, listState.isScrollInProgress) {
+        if (!state.isLoading && state.mappingList.isNotEmpty()) {
+            if (!listState.canScrollForward) {
+                // 滑动到底部，恢复自动滚动
+                viewModel.toggleAutoScroll(true)
+            } else if (listState.isScrollInProgress) {
+                // 向上滑动，暂停自动滚动
+                viewModel.toggleAutoScroll(false)
+            }
+        }
+    }
+
     // 自动聚焦
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
