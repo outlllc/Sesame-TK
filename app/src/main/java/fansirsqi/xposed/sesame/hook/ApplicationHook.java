@@ -719,6 +719,7 @@ public class ApplicationHook {
                                                 return;
                                             }else {
                                                 Log.record(TAG, "未开启手动打开支付宝触发运行任务");
+                                                return;
                                             }                                        }
                                     }
 
