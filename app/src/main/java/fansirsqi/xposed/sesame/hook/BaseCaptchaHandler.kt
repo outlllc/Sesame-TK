@@ -78,7 +78,7 @@ abstract class BaseCaptchaHandler {
                 return false // 未找到关键视图，返回 false 让其他处理器尝试
             }
             Log.record(TAG, "发现滑动验证文本: ${slideTextInDialog.getText()}")
-            delay(1000L) // 等待界面稳定
+            delay(500L) // 等待界面稳定
             // 执行滑动验证
             return performSlideAndVerify(activity, slideTextInDialog)
         } catch (e: Exception) {

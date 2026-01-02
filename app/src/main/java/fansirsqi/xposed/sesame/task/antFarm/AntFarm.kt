@@ -11,7 +11,6 @@ import fansirsqi.xposed.sesame.entity.AlipayUser
 import fansirsqi.xposed.sesame.entity.MapperEntity
 import fansirsqi.xposed.sesame.entity.OtherEntityProvider.farmFamilyOption
 import fansirsqi.xposed.sesame.entity.ParadiseCoinBenefit
-import fansirsqi.xposed.sesame.hook.CoroutineScheduler
 import fansirsqi.xposed.sesame.hook.Toast
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit.addIntervalLimit
 import fansirsqi.xposed.sesame.model.BaseModel
@@ -2284,7 +2283,6 @@ class AntFarm : ModelTask() {
                     // 安全获取foodStock字段，如果不存在则显示未知
                     val remainingFood = jo.optInt("foodStock", 0).coerceAtLeast(0)
                     Log.farm("${UserMap.getCurrentMaskName()}投喂小鸡🥣[180g]#剩余饲料${remainingFood}g")
-                    val test = "\uD83E\uDD63"
 
                     try {
                         val taskId = "KC|$ownerFarmId"
@@ -2328,7 +2326,6 @@ class AntFarm : ModelTask() {
                     } catch (e: Exception) {
                         Log.printStackTrace(TAG, "创建蹲点赶鸡失败: ${e.message}",e)
                     }
-
                     return true
                 } else {
                     // 检查特定的错误码
