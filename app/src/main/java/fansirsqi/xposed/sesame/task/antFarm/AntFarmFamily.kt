@@ -628,7 +628,7 @@ data object AntFarmFamily {
                 var hasMore = true
 
                 while (hasMore) {
-                    Log.record(TAG, "[家庭装扮] 正在获取 [$positionName] 的商品列表, startIndex: $startIndex")
+//                    Log.record(TAG, "[家庭装扮] 正在获取 [$positionName] 的商品列表, startIndex: $startIndex")
                     val itemListRes = AntFarmRpcCall.getItemList(mallCode, 12, startIndex)
                     val itemJo = JSONObject(itemListRes)
 
@@ -640,7 +640,7 @@ data object AntFarmFamily {
                     // 获取当前余额
                     val accountInfo = itemJo.optJSONObject("mallAccountInfoVO")
                     val currentBalance = accountInfo?.optJSONObject("holdingCount")?.optInt("amount") ?: 0
-                    Log.record(TAG, "[家庭装扮] 当前余额: $currentBalance")
+//                    Log.record(TAG, "[家庭装扮] 当前余额: $currentBalance")
 
                     val items = itemJo.optJSONArray("itemInfoVOList")
                     if (items == null || items.length() == 0) {
