@@ -68,7 +68,7 @@ class CustomSettings: Model() {
              * 是否启用每次只运行一次功能
              */
             @Getter
-            val onlyOnceDaily: BooleanModelField = BooleanModelField("onlyOnceDaily", "每日只运行一次的模块", true)
+            val onlyOnceDaily: BooleanModelField = BooleanModelField("onlyOnceDaily", "每日只运行一次的模块(选中)", true)
 
             /**
              * //每日只运行一次森林
@@ -77,15 +77,15 @@ class CustomSettings: Model() {
             val antForest: BooleanModelField = BooleanModelField("antForest", "蚂蚁森林", false)
             val antFarm: BooleanModelField = BooleanModelField("antFarm", "蚂蚁庄园", false)
             val antOcean: BooleanModelField = BooleanModelField("antOcean", "海洋", false)
-            val antOrchard: BooleanModelField = BooleanModelField("antOrchard", "农场", false)
+            val antOrchard: BooleanModelField = BooleanModelField("antOrchard", "农场", true)
             val antStall: BooleanModelField = BooleanModelField("antStall", "新村", false)
             val antDodo: BooleanModelField = BooleanModelField("antDodo", "神奇物种", false)
-            val antCooperate: BooleanModelField = BooleanModelField("antCooperate", "蚂蚁森林合种", false)
-            val antSports: BooleanModelField = BooleanModelField("antSports", "运动", false)
-            val antMember: BooleanModelField = BooleanModelField("antMember", "会员", false)
-            val EcoProtection: BooleanModelField = BooleanModelField("EcoProtection", "生态保护", false)
-            val greenFinance: BooleanModelField = BooleanModelField("greenFinance", "绿色经营", false)
-            val reserve: BooleanModelField = BooleanModelField("reserve", "保护地", false)
+            val antCooperate: BooleanModelField = BooleanModelField("antCooperate", "蚂蚁森林合种", true)
+            val antSports: BooleanModelField = BooleanModelField("antSports", "运动", true)
+            val antMember: BooleanModelField = BooleanModelField("antMember", "会员", true)
+            val EcoProtection: BooleanModelField = BooleanModelField("EcoProtection", "生态保护", true)
+            val greenFinance: BooleanModelField = BooleanModelField("greenFinance", "绿色经营", true)
+            val reserve: BooleanModelField = BooleanModelField("reserve", "保护地", true)
 
             /**
              * 执行间隔时间（分钟）
