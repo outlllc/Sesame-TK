@@ -2160,11 +2160,11 @@ class AntFarm : ModelTask() {
                     val farmTaskList = jo.getJSONArray("farmTaskList")
                     val signList = jo.getJSONObject("signList")
                     val isNight = TimeUtil.isNowAfterOrCompareTimeStr("2000")
-                    if (!Status.hasFlagToday("farm::sign") && signRegardless!!.value) {
+                    if (!Status.hasFlagToday("farm::signed") && signRegardless!!.value) {
                         syncAnimalStatus(ownerFarmId)
                         val foodSpace = foodStockLimit - foodStock
-                        farmSign(signList)
-                        if (foodSpace < 180) {
+                        val result = farmSign(signList)
+                        if (result && foodSpace < 180) {
                             Log.farm("签到实际获得饲料: ${foodSpace}g (因饲料空间不足)")
                         }
                     }
@@ -2205,7 +2205,7 @@ class AntFarm : ModelTask() {
                             break
                         }
 
-                        if (!Status.hasFlagToday("farm::sign")) {
+                        if (!Status.hasFlagToday("farm::signed") && !signRegardless!!.value) {
                             if (foodStockLeft >= 180 || TimeUtil.isNowAfterOrCompareTimeStr("1400")) {
                                 farmSign(signList)
                             } else {
@@ -2272,11 +2272,11 @@ class AntFarm : ModelTask() {
         }
     }
 
-    private fun farmSign(signList: JSONObject) {
+    private fun farmSign(signList: JSONObject): Boolean {
         try {
-            val flag = "farm::sign"
-            if (Status.hasFlagToday(flag)) return
-            val jaFarmSignList = signList.getJSONArray("signList")
+            val flag = "farm::signed"
+            if (Status.hasFlagToday(flag)) return false
+            val jaFarmSignList = signList.getJSONArray("signList")?: return false
             val currentSignKey = signList.getString("currentSignKey")
             for (i in 0..<jaFarmSignList.length()) {
                 val jo = jaFarmSignList.getJSONObject(i)
@@ -2290,14 +2290,22 @@ class AntFarm : ModelTask() {
                         if (ResChecker.checkRes(TAG, signResponse)) {
                             Log.farm("庄园签到📅获得饲料${awardCount}g,签到天数${currentContinuousCount}")
                             Status.setFlagToday(flag)
+                            return true
+                        } else {
+                            Log.farm("签到失败")
+                            return false
                         }
+                    } else {
+                        Log.record(TAG,"今日已经签到了")
+                        Status.setFlagToday(flag)
+                        return false
                     }
-                    return
                 }
             }
         } catch (e: JSONException) {
             Log.printStackTrace(TAG, "庄园签到 JSON解析错误:", e)
         }
+        return false
     }
 
     /**
