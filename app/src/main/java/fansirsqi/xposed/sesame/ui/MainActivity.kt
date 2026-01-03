@@ -291,7 +291,7 @@ class MainActivity : BaseActivity() {
         hasPermissions = PermissionUtil.checkFilePermissions(this)
         if (hasPermissions) {
             startObservingAnimalStatus()
-//            viewModel.reloadUserConfigs()
+            viewModel.reloadUserConfigs()
 
         }
     }
