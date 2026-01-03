@@ -121,14 +121,19 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             
             val startTime = System.currentTimeMillis()
 
-            val isOnceDailyEnabled = CustomSettings.onlyOnceDaily.value
+            var isOnceDailyEnabledOverride = CustomSettings.onlyOnceDaily.value == true
             val isOnceDailyFinished = Status.hasFlagToday("OnceDaily::Finished")
-            if(isOnceDailyEnabled && isOnceDailyFinished){
+            val isInsideTimeRangeDay = TimeUtil.checkNowInTimeRange("0600-0710")
+            val isInsideTimeRangeNight = TimeUtil.checkNowInTimeRange("2000-2100")
+            if (isInsideTimeRangeDay || isInsideTimeRangeNight){
+                isOnceDailyEnabledOverride = false
+            }
+            if(isOnceDailyEnabledOverride && isOnceDailyFinished){
                 Log.other("已启用当日单次运行模式，今日已经完成任务，本次将跳过部分项目")
             }
 
             try {
-                executeTasksWithMode(rounds)
+                executeTasksWithMode(rounds, isOnceDailyEnabledOverride, isOnceDailyFinished)
                 // 设置今日已完成标志，标记一次完整的任务执行流程已结束
                 if (CustomSettings.onlyOnceDaily.value) {
                     Status.setFlagToday("OnceDaily::Finished")
@@ -158,22 +163,18 @@ class CoroutineTaskRunner(allModels: List<Model>) {
      * 执行任务（仅支持顺序执行）
      */
     private suspend fun executeTasksWithMode(
-        rounds: Int
+        rounds: Int, onceMode: Boolean, finished: Boolean
     ) {
         // 无论传入什么模式，都使用顺序执行
-        executeSequentialTasks(rounds)
+        executeSequentialTasks(rounds, onceMode, finished)
     }
 
     /**
      * 顺序执行所有任务
      */
-    private suspend fun executeSequentialTasks(rounds: Int) {
+    private suspend fun executeSequentialTasks(rounds: Int, isOnceDailyEnabled: Boolean, isOnceDailyFinished: Boolean) {
         val configuredRounds = BaseModel.taskExecutionRounds.value
         Log.record(TAG, "⚙️ 任务执行配置：传入${rounds}轮，BaseModel配置${configuredRounds}轮（用户可在基础设置中调整）")
-        
-        val isOnceDailyFinished = Status.hasFlagToday("OnceDaily::Finished")
-        val isOnceDailyEnabled = CustomSettings.onlyOnceDaily.value
-        
         // 当发现自定义黑名单启用时，打印Log.other()
         if (isOnceDailyFinished && isOnceDailyEnabled) {
             val customBlacklistedNames = taskList.filter { it.isEnable && isCustomBlacklisted(it.getName()) }

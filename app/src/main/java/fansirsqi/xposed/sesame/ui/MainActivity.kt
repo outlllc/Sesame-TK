@@ -86,7 +86,9 @@ import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.R
 import fansirsqi.xposed.sesame.SesameApplication.Companion.hasPermissions
 import fansirsqi.xposed.sesame.SesameApplication.Companion.preferencesKey
+import fansirsqi.xposed.sesame.data.Config
 import fansirsqi.xposed.sesame.entity.UserEntity
+import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.newui.DeviceInfoCard
 import fansirsqi.xposed.sesame.newui.DeviceInfoUtil
 import fansirsqi.xposed.sesame.newui.WatermarkLayer
@@ -167,7 +169,7 @@ class MainActivity : BaseActivity() {
                         viewModel = viewModel,
                         onlyOnceDaily = onlyOnceDaily,
                         isFinishedToday = isFinishedToday,
-                        onEvent = { event -> handleEvent(event, userList) } // 处理点击事件
+                        onEvent = { event -> handleEvent(event, userList, activeUser) } // 处理点击事件
                     )
                 }
             }
@@ -212,6 +214,7 @@ class MainActivity : BaseActivity() {
         // 🔥 新增菜单相关事件
         data class ToggleIconHidden(val isHidden: Boolean) : MainUiEvent()
         data object OpenCaptureLog : MainUiEvent()
+        data object ToggleDebugMode : MainUiEvent() // 🔥 新增抓包开关事件
         data object OpenExtend : MainUiEvent()
         data object ClearConfig : MainUiEvent()
     }
@@ -219,7 +222,7 @@ class MainActivity : BaseActivity() {
     /**
      * 统一处理事件
      */
-    private fun handleEvent(event: MainUiEvent, userList: List<UserEntity>) {
+    private fun handleEvent(event: MainUiEvent, userList: List<UserEntity>, activeUser: UserEntity?) {
         when (event) {
 //            MainUiEvent.RefreshOneWord -> {viewModel.fetchOneWord()}
             MainUiEvent.OpenForestLog -> openLogFile(Files.getForestLogFile())
@@ -260,6 +263,17 @@ class MainActivity : BaseActivity() {
             }
 
             MainUiEvent.OpenCaptureLog -> openLogFile(Files.getCaptureLogFile())
+
+            MainUiEvent.ToggleDebugMode -> { // 🔥 处理抓包开关
+                BaseModel.debugMode.value = !BaseModel.debugMode.value
+                val uid = activeUser?.userId
+                if (!uid.isNullOrEmpty()) {
+                    Config.save(uid, true)
+                }
+                val status = if (BaseModel.debugMode.value) "已开启" else "已关闭"
+                Toast.makeText(this, "抓包功能$status", Toast.LENGTH_SHORT).show()
+            }
+
             MainUiEvent.OpenExtend -> startActivity(Intent(this, ExtendActivity::class.java))
             MainUiEvent.ClearConfig -> {
                 AlertDialog.Builder(this)
@@ -585,7 +599,15 @@ fun MainScreen(
                                 showMenu = false
                             }
                         )
-                        // 3. 扩展功能
+                        // 🔥 3. 开启/关闭抓包 (新增加)
+                        DropdownMenuItem(
+                            text = { Text(if (BaseModel.debugMode.value) "关闭抓包" else "开启抓包") },
+                            onClick = {
+                                onEvent(MainActivity.MainUiEvent.ToggleDebugMode)
+                                showMenu = false
+                            }
+                        )
+                        // 4. 扩展功能
                         DropdownMenuItem(
                             text = { Text("扩展功能") },
                             onClick = {
@@ -593,7 +615,7 @@ fun MainScreen(
                                 showMenu = false
                             }
                         )
-                        // 4. 清除配置 (仅 Debug 模式显示)
+                        // 5. 清除配置 (仅 Debug 模式显示)
                         if (BuildConfig.DEBUG) {
                             DropdownMenuItem(
                                 text = { Text("清除配置") },
