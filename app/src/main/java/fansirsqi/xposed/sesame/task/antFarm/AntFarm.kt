@@ -443,8 +443,8 @@ class AntFarm : ModelTask() {
         modelFields.addField(
             BooleanModelField(
                 "signRegardless",
-                "庄园签到忽略饲料量",
-                true
+                "庄园签到忽略饲料余量",
+                false
             ).also { signRegardless = it })
         modelFields.addField(
             BooleanModelField(
