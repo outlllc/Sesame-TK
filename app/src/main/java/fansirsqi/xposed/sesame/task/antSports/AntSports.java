@@ -58,6 +58,7 @@ public class AntSports extends ModelTask {
     private ChoiceModelField battleForFriendType;
     private SelectModelField originBossIdList;
     private BooleanModelField sportsTasks;
+    private BooleanModelField sportsEnergyBubble;
 
     // 训练好友相关变量
     private BooleanModelField trainFriend;
@@ -98,6 +99,7 @@ public class AntSports extends ModelTask {
         modelFields.addField(walkCustomPathId = new StringModelField("walkCustomPathId", "行走路线 | 自定义路线代码(debug)", "p0002023122214520001"));
         modelFields.addField(openTreasureBox = new BooleanModelField("openTreasureBox", "开启宝箱", false));
         modelFields.addField(sportsTasks = new BooleanModelField("sportsTasks", "开启运动任务", false));
+        modelFields.addField(sportsEnergyBubble = new BooleanModelField("sportsEnergyBubble", "运动球任务(开启后有概率出现滑块验证)", false));
         //干就完了，都能做  modelFields.addField(sportsTaskBlacklist = new StringModelField("sportsTaskBlacklist", "运动任务黑名单 | 任务名称(用,分隔)", "开通包裹查询服务,添加支付宝小组件,领取价值1.7万元配置,支付宝积分可兑券"));
         modelFields.addField(receiveCoinAsset = new BooleanModelField("receiveCoinAsset", "收能量🎈", false));
         modelFields.addField(donateCharityCoin = new BooleanModelField("donateCharityCoin", "捐能量🎈 | 开启", false));
@@ -210,7 +212,9 @@ public class AntSports extends ModelTask {
             }
 
             // 运动球任务
-            sportsEnergyBubbleTask();
+            if (sportsEnergyBubble.getValue()) {
+                sportsEnergyBubbleTask();
+            }
 
             ClassLoader loader = ApplicationHook.getClassLoader();
 

@@ -3,7 +3,6 @@ package fansirsqi.xposed.sesame.ui.log
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-//import fansirsqi.xposed.sesame.ui.components.WatermarkLayer
 import fansirsqi.xposed.sesame.newui.WatermarkLayer
 import fansirsqi.xposed.sesame.ui.theme.AppTheme
 

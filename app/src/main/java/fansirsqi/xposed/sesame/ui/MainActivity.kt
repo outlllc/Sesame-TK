@@ -125,7 +125,7 @@ class MainActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
 
         // 1. 检查权限并初始化逻辑
-        hasPermissions = PermissionUtil.checkFilePermissions(this)
+        hasPermissions = PermissionUtil.checkOrRequestFilePermissions(this)
         if (hasPermissions) {
             viewModel.initAppLogic()
             // 🔥 修复：Native 检测必须在 Activity 中调用
