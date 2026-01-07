@@ -18,6 +18,7 @@ import fansirsqi.xposed.sesame.task.reserve.Reserve
 object ModelOrder {
     private val array = arrayOf(
         BaseModel::class.java,       // 基础设置
+        CustomSettings::class.java,  // 自定义设置
         AntForest::class.java,       // 森林
         AntFarm::class.java,         // 庄园
         AntOcean::class.java,        // 海洋

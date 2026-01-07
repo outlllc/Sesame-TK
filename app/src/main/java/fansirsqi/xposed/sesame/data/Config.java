@@ -221,6 +221,8 @@ public class Config {
 //                Log.record(TAG, "读取配置文件成功: " + configV2File.getPath());
                 try {
                     JsonUtil.copyMapper().readerForUpdating(INSTANCE).readValue(json);
+                    // 关键修复：同步加载的数据到模型字段，确保内存中的设置即时生效
+                    INSTANCE.setModelFieldsMap(INSTANCE.getModelFieldsMap());
                 } catch (UnrecognizedPropertyException e) {
                     Log.error(TAG, "配置文件中存在无法识别的字段: '" + e.getPropertyName() + "'，将尝试移除并重新加载。");
                     try {
@@ -230,6 +232,8 @@ public class Config {
                         ((ObjectNode) rootNode).remove(e.getPropertyName());
                         String cleanedJson = mapper.writeValueAsString(rootNode);
                         mapper.readerForUpdating(INSTANCE).readValue(cleanedJson);
+                        // 移除后也要同步一次
+                        INSTANCE.setModelFieldsMap(INSTANCE.getModelFieldsMap());
                         Log.error(TAG, "成功移除问题字段并加载配置。");
                         // 保存修复后的配置
                         Files.write2File(toSaveStr(), configV2File);
@@ -247,6 +251,7 @@ public class Config {
             } else if (defaultConfigV2FileExists) {
                 String json = Files.readFromFile(Files.getDefaultConfigV2File());
                 JsonUtil.copyMapper().readerForUpdating(INSTANCE).readValue(json);
+                INSTANCE.setModelFieldsMap(INSTANCE.getModelFieldsMap());
                 Log.record(TAG, "复制新配置: " + userName);
                 Files.write2File(json, configV2File);
             } else {

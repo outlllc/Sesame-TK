@@ -166,24 +166,24 @@ fun Context.showUserSelectionDialog(
         }
     )
 
-    // 自动选择逻辑 (保留原代码逻辑)
-    if (userList.size in 1..2) {
-        Thread {
-            try {
-                if (!latch.await(800, TimeUnit.MILLISECONDS)) {
-                    // 需要切回主线程操作 UI
-                    if (this is android.app.Activity) {
-                        this.runOnUiThread {
-                            if (dialog.isShowing) {
-                                onUserSelected(userList.last())
-                                dialog.dismiss()
-                            }
-                        }
-                    }
-                }
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-        }.start()
-    }
+    // 自动选择逻辑 (已注释掉)
+//    if (userList.size in 1..2) {
+//        Thread {
+//            try {
+//                if (!latch.await(8000, TimeUnit.MILLISECONDS)) {
+//                    // 需要切回主线程操作 UI
+//                    if (this is android.app.Activity) {
+//                        this.runOnUiThread {
+//                            if (dialog.isShowing) {
+//                                onUserSelected(userList.last())
+//                                dialog.dismiss()
+//                            }
+//                        }
+//                    }
+//                }
+//            } catch (_: InterruptedException) {
+//                Thread.currentThread().interrupt()
+//            }
+//        }.start()
+//    }
 }

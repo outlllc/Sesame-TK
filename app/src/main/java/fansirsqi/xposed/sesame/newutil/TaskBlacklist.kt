@@ -146,7 +146,7 @@ object TaskBlacklist {
             // 第四步：生成日志信息并记录
             // 优先显示完整信息（ID-标题），如果标题为空则只显示ID
             val taskInfo = if (taskTitle.isNotBlank()) "$taskId - $taskTitle" else taskId
-            Log.record(TAG, "任务[$taskInfo]因$reason 自动加入黑名单")
+            Log.other(TAG, "任务[$taskInfo]因$reason 自动加入黑名单")
         }
     }
 }

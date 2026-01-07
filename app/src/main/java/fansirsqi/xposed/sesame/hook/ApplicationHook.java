@@ -10,6 +10,8 @@ import android.os.Handler;
 import android.os.Looper;
 
 
+import androidx.core.content.ContextCompat;
+
 import fansirsqi.xposed.sesame.hook.internal.SecurityBodyHelper;
 import fansirsqi.xposed.sesame.hook.keepalive.SmartSchedulerManager;
 import fansirsqi.xposed.sesame.hook.server.ModuleHttpServerManager;
@@ -78,6 +80,7 @@ public class ApplicationHook {
         static final String RE_LOGIN = "com.eg.android.AlipayGphone.sesame.reLogin";
         static final String STATUS = "com.eg.android.AlipayGphone.sesame.status";
         static final String RPC_TEST = "com.eg.android.AlipayGphone.sesame.rpctest";
+        static final String STOP = "com.eg.android.AlipayGphone.sesame.stop";
     }
 
     private static class AlipayClasses {
@@ -296,7 +299,7 @@ public class ApplicationHook {
             File finalSoFile = AssetUtil.INSTANCE.copyStorageSoFileToPrivateDir(context, soFile);
             if (finalSoFile != null) {
                 System.load(finalSoFile.getAbsolutePath());
-                Log.record(TAG, "Loading " + soFile.getName() + " from :" + finalSoFile.getAbsolutePath());
+                Log.record(TAG, "Loading " + soFile.getName() + " from :" + finalSoFile.getAbsolutePath(), 0);
             } else {
                 Detector.INSTANCE.loadLibrary(soFile.getName().replace(".so", "").replace("lib", ""));
             }
@@ -382,7 +385,7 @@ public class ApplicationHook {
 
                     if (VersionHook.hasVersion()) {
                         alipayVersion = VersionHook.getCapturedVersion();
-                        Log.record(TAG, "📦 支付宝版本(Hook): " + alipayVersion.getVersionString());
+                        Log.record(TAG, "📦 支付宝版本(Hook): " + alipayVersion.getVersionString(), 0);
                     } else {
                         try {
                             PackageInfo pInfo = appContext.getPackageManager().getPackageInfo(packageName, 0);
@@ -481,7 +484,7 @@ public class ApplicationHook {
                                 return;
                             }
                             try (DexKitBridge ignored = DexKitBridge.create(apkPath)) {
-                                Log.record(TAG, "hook dexkit successfully");
+                                Log.record(TAG, "hook dexkit successfully", 0);
                             }
                             service = appService;
                             mainTask = MainTask.newInstance("MAIN_TASK", () -> {
@@ -489,8 +492,8 @@ public class ApplicationHook {
                                     if (!init) return;
                                     if (!Config.isLoaded()) return;
 
-
                                     long currentTime = System.currentTimeMillis();
+                                    if (currentTime - lastExecTime < 5000) return;
                                     final long MIN_EXEC_INTERVAL = 2000;
                                     long timeSinceLastExec = currentTime - lastExecTime;
 
@@ -835,6 +838,12 @@ public class ApplicationHook {
                                 }
                             });
                             break;
+
+                        case BroadcastActions.STOP:
+                            Log.record(TAG, "🛑 收到手动停止指令");
+                            GlobalThreadPools.INSTANCE.execute(ApplicationHook::stopHandler);
+                            Toast.INSTANCE.show("🛑 任务已尝试停止");
+                            break;
                     }
                 }
             } catch (Throwable t) {
@@ -850,10 +859,11 @@ public class ApplicationHook {
             intentFilter.addAction(BroadcastActions.RE_LOGIN);
             intentFilter.addAction(BroadcastActions.STATUS);
             intentFilter.addAction(BroadcastActions.RPC_TEST);
+            intentFilter.addAction(BroadcastActions.STOP);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.registerReceiver(new AlipayBroadcastReceiver(), intentFilter, Context.RECEIVER_EXPORTED);
             } else {
-                context.registerReceiver(new AlipayBroadcastReceiver(), intentFilter);
+                ContextCompat.registerReceiver(context, new AlipayBroadcastReceiver(), intentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
             }
         } catch (Throwable th) {
             Log.record(TAG, "hook registerBroadcastReceiver err:");

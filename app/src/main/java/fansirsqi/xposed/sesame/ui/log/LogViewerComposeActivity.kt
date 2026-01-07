@@ -6,8 +6,6 @@ import androidx.activity.compose.setContent
 import fansirsqi.xposed.sesame.newui.WatermarkLayer
 import fansirsqi.xposed.sesame.ui.theme.AppTheme
 
-//import fansirsqi.xposed.sesame.newui.WatermarkView
-
 /**
  * 承载 Compose 日志查看器的 Activity
  */

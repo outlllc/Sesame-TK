@@ -1329,7 +1329,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 安全获取服务器时间，如果没有则使用当前时间
             val serverTime = userHomeObj.optLong("now", System.currentTimeMillis())
             val offsetTime = offsetTimeMath.nextInteger(((start + end) / 2 - serverTime).toInt())
-            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime")
+            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime",0)
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "查询自己主页异常", t)
         }
@@ -1362,7 +1362,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 安全获取服务器时间，如果没有则使用当前时间
             val serverTime = friendHomeObj.optLong("now", System.currentTimeMillis())
             val offsetTime = offsetTimeMath.nextInteger(((start + end) / 2 - serverTime).toInt())
-            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime")
+            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime", 0)
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "查询好友主页异常, userId: " + UserMap.getMaskName(userId), t)
         }

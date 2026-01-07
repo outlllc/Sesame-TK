@@ -1,6 +1,8 @@
 package fansirsqi.xposed.sesame
 
+import android.annotation.SuppressLint
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.os.Process
 import fansirsqi.xposed.sesame.service.CommandService
@@ -18,12 +20,25 @@ class SesameApplication : Application() {
         private const val TAG = "SesameApplication"
         var preferencesKey = "sesame-tk"
         var hasPermissions: Boolean = false
+
+        @SuppressLint("StaticFieldLeak")
+        private var instance: SesameApplication? = null
+
+        /**
+         * 获取应用全局 Context
+         */
+        @JvmStatic
+        fun getContext(): Context? {
+            return instance
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         ToastUtil.init(this) // 初始化全局 Context
         Log.init(this)
+        instance = this
+
         val processName = getCurrentProcessName()
         Log.record(TAG, "🚀 应用启动 | 进程: $processName | PID: ${Process.myPid()}")
         // 启动 CommandService

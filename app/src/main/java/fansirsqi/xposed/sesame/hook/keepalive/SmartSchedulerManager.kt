@@ -3,6 +3,7 @@ package fansirsqi.xposed.sesame.hook.keepalive
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.PowerManager
+import fansirsqi.xposed.sesame.task.CoroutineTaskRunner
 import fansirsqi.xposed.sesame.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +76,7 @@ object SmartSchedulerManager {
             // 获取 WakeLock
             val wakeLock = acquireWakeLock(delayMillis + 2000) // 多申请2秒余量
             Log.record(TAG, "⏳ 任务调度: [$taskName] | ID:$taskId | 延迟: ${delayMillis / 1000}s")
+            Log.record( ">".repeat(50))
 
             try {
                 // 核心：在 WakeLock 保护下进行挂起

@@ -101,15 +101,6 @@ class ExtendActivity : BaseActivity() {
             }
         )
 
-        // 单次运行模块
-        extendFunctions.add(
-            ExtendFunctionItem("每日单次运行设置") {
-                CustomSettings.showSingleRunMenu(this) {
-                    populateExtendFunctions()
-                }
-            }
-        )
-
         //调试功能往里加
         if (BuildConfig.DEBUG) {
             // 新增：RPC 调试入口（Method + requestData）

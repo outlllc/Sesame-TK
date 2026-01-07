@@ -223,8 +223,9 @@ class ForestChouChouLe {
             val taskType = baseInfo.optString("taskType")
             val taskStatus = baseInfo.optString("taskStatus")
             val bizInfoStr = baseInfo.optString("bizInfo")
-            val bizInfo = if (bizInfoStr.isNotEmpty()) JSONObject(bizInfoStr) else JSONObject()
-            val taskName = bizInfo.optString("title", taskType)
+            val taskName = if (bizInfoStr.isNotEmpty()) {
+                JSONObject(bizInfoStr).optString("title", taskType)
+            } else taskType
 
             if (isBlockedTask(taskType, taskName)) continue
 
@@ -237,10 +238,11 @@ class ForestChouChouLe {
             }
         }
 
-        Log.record("${s.name} 进度: $completed / $total")
-        if (allDone && total > 0) {
+//        Log.record("${s.name} 进度: $completed / $total")
+        if (allDone) {
             Status.setFlagToday(s.flag)
-            Log.record("✅ ${s.name} 全部完成")
+            val msg = if (total > 0) "全部完成" else "无有效任务"
+            Log.record("✅ ${s.name} $msg ($completed/$total)")
         } else {
             Log.record("⚠️ ${s.name} 未全部完成")
         }
@@ -270,7 +272,7 @@ class ForestChouChouLe {
 
         if (isBlockedTask(taskType, taskName)) return false
 
-        Log.record("${s.name} 任务: $taskName [$taskStatus]")
+        Log.record("${s.name} 任务: $taskName [$taskStatus]", 0)
 
         return when (taskStatus) {
             TaskStatus.TODO.name -> handleTodoTask(s, taskName, taskCode, taskType)
@@ -290,7 +292,7 @@ class ForestChouChouLe {
             } else false
         } else if (type.startsWith("FOREST_NORMAL_DRAW") || type.startsWith("FOREST_ACTIVITY_DRAW")) {
             // 普通任务
-            Log.record("${s.name} 执行任务(模拟耗时): $name")
+            Log.record("${s.name} 执行任务(模拟耗时): $name", 0)
             sleepCompat(100L) //
 
             val result = if (type.contains("XLIGHT")) {
@@ -301,7 +303,7 @@ class ForestChouChouLe {
 
             val resJson = result.toJson()
             if (resJson != null && resJson.check()) {
-                Log.forest("${s.name} 🧾 $name")
+                Log.forest("${s.name} 🧾 ${name}完成")
                 true
             } else {
                 val count = taskTryCount.computeIfAbsent(type) { AtomicInteger(0) }.incrementAndGet()
@@ -314,7 +316,7 @@ class ForestChouChouLe {
     }
 
     private fun handleFinishedTask(s: Scene, name: String, code: String, type: String): Boolean {
-        Log.record("${s.name} 领取奖励: $name")
+        Log.record("${s.name} 领取奖励: $name", 0)
         sleepCompat(100L)
         val res = AntForestRpcCall.receiveTaskAwardopengreen(SOURCE, code, type).toJson()
         return if (res != null && res.check()) {

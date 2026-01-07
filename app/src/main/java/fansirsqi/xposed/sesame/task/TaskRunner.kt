@@ -8,6 +8,7 @@ import fansirsqi.xposed.sesame.model.CustomSettings
 import fansirsqi.xposed.sesame.model.Model
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.TimeUtil
+import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -18,6 +19,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 
 /**
  * 协程任务执行器 (优化版)
@@ -35,7 +37,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
         // 最大并发数，防止请求过于频繁触发风控
         // 可以做成配置项，目前硬编码为 3
-        private const val MAX_CONCURRENCY = 3
+        private const val MAX_CONCURRENCY = 2
 
         private val TIMEOUT_WHITELIST = setOf("森林", "庄园", "运动")
     }
@@ -58,13 +60,18 @@ class CoroutineTaskRunner(allModels: List<Model>) {
     ) = coroutineScope { // 使用 coroutineScope 创建子作用域
         val startTime = System.currentTimeMillis()
 
-        if (isFirst) resetCounters()
+        if (isFirst) {
+            resetCounters()
+            // 【关键修复】开始新一轮任务流时，必须重置全局停止信号
+            // 否则如果之前调用过 stopAllTask()，新任务会检测到信号而立即退出
+            ModelTask.isGlobalStopRequested = false
+            Log.record(TAG, "♻️ 已重置全局停止信号，开始新任务流")
+        }
 
         try {
             Log.record(TAG, "🚀 开始执行任务流程 (并发数: $MAX_CONCURRENCY)")
 
-            CustomSettings.loadForTaskRunner()
-            val status = CustomSettings.getOnceDailyStatus(enableLog = true)
+            val status = CustomSettings.getOnceDailyStatus(true)
 
             // 执行多轮任务
             repeat(rounds) { roundIndex ->
@@ -83,14 +90,19 @@ class CoroutineTaskRunner(allModels: List<Model>) {
             Log.printStackTrace(TAG, "任务流程异常", e)
         } finally {
             printExecutionSummary(startTime, System.currentTimeMillis())
-            scheduleNext()
+            // 只有在没有请求全局停止的情况下才调度下一次
+            if (!ModelTask.isGlobalStopRequested) {
+                scheduleNext()
+            } else {
+                Log.record(TAG, "🛑 任务已停止，跳过下次调度")
+            }
         }
     }
 
     /**
      * 执行一轮任务 (并发模式)
      */
-    private suspend fun executeRound(round: Int, totalRounds: Int, status: CustomSettings.OnceDailyStatus) = coroutineScope {
+    private suspend fun executeRound(round: Int, totalRounds: Int, status: CustomSettings.Companion.OnceDailyStatus) = coroutineScope {
         val roundStartTime = System.currentTimeMillis()
 
         // 1. 筛选任务
@@ -103,6 +115,31 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
         Log.record(TAG, "🔄 [第 $round/$totalRounds 轮] 开始，共 ${tasksToRun.size} 个任务")
 
+        if (status.isEnabledOverride && status.isFinishedToday) {
+            val customBlacklistedNames = taskList.filter {
+                it.isEnable && CustomSettings.isOnceDailyBlackListed(
+                    it.getName(),
+                    status
+                )
+            }
+                .map { it.getName() ?: "未知" }
+            if (customBlacklistedNames.isNotEmpty()) {
+                Log.record(
+                    "🚫 [每日单次运行] 模式已生效，将跳过以下已开启且完成过一次的项目: ${
+                        customBlacklistedNames.joinToString(
+                            ", "
+                        )
+                    }"
+                )
+            }
+        }
+
+        // 检查全局停止信号
+        if (ModelTask.isGlobalStopRequested) {
+            Log.record(TAG, "🛑 检测到全局停止信号，终止第${round}轮任务执行")
+            return@coroutineScope
+        }
+
         // 2. 并发执行
         // 使用 Semaphore 限制并发数量
         val semaphore = Semaphore(MAX_CONCURRENCY)
@@ -110,6 +147,7 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         // 创建所有任务的 Deferred 对象
         val deferreds = tasksToRun.map { task ->
             async {
+                if (ModelTask.isGlobalStopRequested) return@async
                 semaphore.withPermit {
                     executeSingleTask(task, round)
                 }
@@ -120,13 +158,15 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         deferreds.awaitAll()
 
         val roundTime = System.currentTimeMillis() - roundStartTime
-        Log.record(TAG, "✅ [第 $round/$totalRounds 轮] 结束，耗时: ${roundTime}ms")
+        Log.record(TAG, "✅ [第 $round/$totalRounds 轮] 结束，耗时: ${TimeUtil.formatDuration(roundTime)}ms")
     }
 
     /**
      * 执行单个任务
      */
     private suspend fun executeSingleTask(task: ModelTask, round: Int) {
+        if (ModelTask.isGlobalStopRequested) return
+        
         val taskName = task.getName() ?: "未知任务"
         val taskId = "$taskName-R$round"
         val startTime = System.currentTimeMillis()
@@ -143,7 +183,6 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
             withTimeout(timeout) {
                 // startTask 是一个 suspend 函数，或者返回一个 Job
-                // 假设 task.startTask 现在是 suspend 的，或者我们 wrap 一下
                 val job = task.startTask(force = false, rounds = 1)
 
                 // 如果是白名单任务，我们只等待它启动成功（job active），不 join
@@ -156,6 +195,11 @@ class CoroutineTaskRunner(allModels: List<Model>) {
 
                 // 普通任务等待完成
                 job.join()
+            }
+
+            // 任务结束后立即检查全局停止信号
+            if (ModelTask.isGlobalStopRequested) {
+                throw CancellationException("Manual stop detected after job completion")
             }
 
             // 成功
@@ -208,17 +252,49 @@ class CoroutineTaskRunner(allModels: List<Model>) {
         val totalTime = endTime - startTime
         val avgTime = if (taskExecutionTimes.isNotEmpty()) taskExecutionTimes.values.average() else 0.0
 
-        Log.record(TAG, "📈 === 执行统计 (并发模式) ===")
-        Log.record(TAG, "⏱️ 总耗时: ${totalTime}ms")
+        val separator1 = ">".repeat(15)
+        val separator2 = "<".repeat(17)
+
+        Log.record(TAG, "\n📈 $separator1 执行统计 (并发模式) $separator2")
+        Log.record(TAG, "⏱️ 总耗时: ${TimeUtil.formatDuration(totalTime)}ms")
         Log.record(TAG, "✅ 成功: ${successCount.get()} | ❌ 失败: ${failureCount.get()} | ⏭️ 跳过: ${skippedCount.get()}")
         if (taskExecutionTimes.isNotEmpty()) {
-            Log.record(TAG, "⚡ 平均耗时: %.0fms".format(avgTime))
+            Log.record(TAG, "⚡ 平均耗时: ${TimeUtil.formatDuration(avgTime.toLong())}")
         }
 
         val nextTime = ApplicationHook.nextExecutionTime
         if (nextTime > 0) {
             Log.record(TAG, "📅 下次: ${TimeUtil.getCommonDate(nextTime)}")
+            val maskName = UserMap.getCurrentMaskName() ?: "未知用户"
+            Log.animalStatus("[$maskName]📅 下次: ${TimeUtil.getCommonDate(nextTime)}", 5)
         }
-        Log.record(TAG, "============================")
+        listScheduledTask()
+        Log.record(TAG, "=".repeat(50))
+    }
+
+    fun listScheduledTask(){
+        // 获取等待任务的总数
+        val count = ModelTask.ChildModelTask.getWaitingCount()
+        if (count == 0) return
+        Log.other("定时执行任务总数：${count}个")
+
+        // 打印所有正在等待的任务详情
+        val tasks = ModelTask.ChildModelTask.getWaitingTasks()
+        tasks.forEach { task ->
+            // 匹配 FA| 开头的 ID 并转换
+            val displayName = if (task.id.startsWith("FA|")) {
+                "庄园蹲点喂小鸡"
+            } else if (task.id.startsWith("AW|")) {
+                "小鸡定时起床"
+            }else if (task.id.startsWith("AS|")) {
+                "小鸡定时睡觉"
+            }else if (task.id.startsWith("KC|")) {
+                "小鸡蹲点驱赶偷吃"
+            }
+            else {
+                task.id
+            }
+            Log.other("正在等待的任务: 名称=${displayName}, 计划执行时间=${TimeUtil.getCommonDate(task.execTime)}")
+        }
     }
 }

@@ -91,6 +91,13 @@ object Files {
         return write2File(json, File(CONFIG_DIR, "config_v2.json"))
     }
 
+    fun getAnimalStatusLogFile(): File {
+        return ensureLogFile(getLogFile("animal_status"))
+    }
+    fun getDataStoreFile(): File {
+        return File(CONFIG_DIR, "DataStore.json")
+    }
+
     @JvmStatic
     @Synchronized
     fun getConfigV2File(userId: String): File {
