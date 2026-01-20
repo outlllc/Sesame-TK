@@ -1,5 +1,6 @@
 package fansirsqi.xposed.sesame.hook
 
+import fansirsqi.xposed.sesame.util.DataStore
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.maps.IdMapManager
 import fansirsqi.xposed.sesame.util.maps.VipDataIdMap
@@ -11,7 +12,7 @@ object TokenHooker {
 
     /**
      * 方法名 -> handler
-     * 注意：这里不需要改，Handler 仍然只接收 JSONObject，UserId 通过闭包在 start 中传入
+     * 注意：这里不需要改，Handler 仍然只接收 JSONObject，UserId 通过闭包 in start 中传入
      */
     private val rpcHandlerMap: MutableMap<String, (JSONObject) -> Unit> = mutableMapOf()
 
@@ -25,8 +26,6 @@ object TokenHooker {
             return
         }
         // 注册蚂蚁庄园 ReferToken 抓取
-        // 这里 paramsJson 是 HookUtil 传来的
-        // currentUserId 是 start 方法传进来的（闭包捕获）
         registerRpcHandler("com.alipay.adexchange.ad.facade.xlightPlugin") { paramsJson ->
             handleAntFarmToken(currentUserId, paramsJson)
         }
@@ -41,7 +40,6 @@ object TokenHooker {
 
     /**
      * 调用 handler
-     * HookUtil 调用此方法时，不需要传 userId，因为它已经被 start 方法“记住”了
      */
     fun handleRpc(method: String, paramsJson: JSONObject) {
         rpcHandlerMap[method]?.invoke(paramsJson)
@@ -75,6 +73,8 @@ object TokenHooker {
 
             if (vipData.save(userId)) {
                 Log.other(TAG, "🎁 捕获到蚂蚁庄园 referToken 并已保存, uid=$userId")
+                // 设置一个信号标志，让 UI 线程感知到捕获成功
+                DataStore.put("AntFarmReferToken_Captured_Signal", System.currentTimeMillis())
             } else {
                 Log.error(TAG, "保存 vipdata.json 失败, uid=$userId")
             }

@@ -93,7 +93,7 @@ object SmartSchedulerManager {
         val job = scope.launch {
             val wakeLock = acquireWakeLock(finalDelay + 5000)
             Log.record(TAG, "⏳ 任务调度: [$taskName] | ID:$taskId | 延迟: ${TimeUtil.formatDuration(finalDelay)}")
-            Log.record( ">".repeat(40))
+            Log.record( ">".repeat(50))
 
             try {
                 // 核心：在 WakeLock 保护下进行挂起

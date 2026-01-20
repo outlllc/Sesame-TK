@@ -98,7 +98,7 @@ class AntMember : ModelTask() {
 
     override fun getFields(): ModelFields {
         val modelFields = ModelFields()
-        modelFields.addField(BooleanModelField("memberSign", "会员签到", false).also {
+        modelFields.addField(BooleanModelField("memberSign", "会员签到", true).also {
             memberSign = it
         })
         modelFields.addField(BooleanModelField("memberTask", "会员任务", false).also {
@@ -1035,10 +1035,16 @@ class AntMember : ModelTask() {
                             "signinSumDay"
                         ) + "天"
                     )
+                    Log.animalStatus(
+                        "！！会员签到📅[" + jo.getString("signinPoint") + "积分]#已签到" + jo.getString(
+                            "signinSumDay"
+                        ) + "天"
+                    )
                     memberSignInToday(UserMap.currentUid)
                 } else {
                     record(jo.getString("resultDesc"))
                     record(s)
+                    Log.animalStatus("会员签到失败！！")
                 }
             }
             queryPointCert(1, 8)

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.entity.UserEntity
+import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.ui.MainActivity
 import fansirsqi.xposed.sesame.ui.navigation.BottomNavItem
 import fansirsqi.xposed.sesame.ui.screen.components.HomeContent
@@ -41,13 +42,16 @@ import fansirsqi.xposed.sesame.ui.viewmodel.MainViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    oneWord: String,
+    animalStatus: String,
+    onlyOnceDaily: Boolean,
+    autoHandleOnceDaily: Boolean,
+    isFinishedToday: Boolean,
     activeUserName: String,
     moduleStatus: MainViewModel.ModuleStatus,
     viewModel: MainViewModel,
-    isDynamicColor: Boolean, // 传给 MainScreen
-    userList: List<UserEntity>, // 🔥 确保 userList 被传入 MainScreen
-    onNavigateToSettings: (UserEntity) -> Unit, // 🔥 新增回调：跳转设置
+    isDynamicColor: Boolean,
+    userList: List<UserEntity>,
+    onNavigateToSettings: (UserEntity) -> Unit,
     onEvent: (MainActivity.MainUiEvent) -> Unit,
 ) {
     val context = LocalContext.current
@@ -56,12 +60,10 @@ fun MainScreen(
         viewModel.refreshDeviceInfo(context)
     }
 
-    var currentScreen by remember { mutableStateOf<BottomNavItem>(BottomNavItem.Home) } // 默认显示主页
-
+    var currentScreen by remember { mutableStateOf<BottomNavItem>(BottomNavItem.Home) }
 
     val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 
-    val isOneWordLoading by viewModel.isOneWordLoading.collectAsStateWithLifecycle()
     val prefs = context.getSharedPreferences(PREFERENCES_KEY, Context.MODE_PRIVATE)
     var isIconHidden by remember { mutableStateOf(prefs.getBoolean("is_icon_hidden", false)) }
     var showMenu by remember { mutableStateOf(false) }
@@ -90,13 +92,11 @@ fun MainScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
-
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
 
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-
                         DropdownMenuItem(
                             text = { Text(if (isIconHidden) "显示应用图标" else "隐藏应用图标") },
                             onClick = {
@@ -105,8 +105,21 @@ fun MainScreen(
                                 showMenu = false
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text(if (BaseModel.debugMode.value) "关闭抓包" else "开启抓包") },
+                            onClick = {
+                                onEvent(MainActivity.MainUiEvent.ToggleDebugMode)
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("查看 DataStore") },
+                            onClick = {
+                                onEvent(MainActivity.MainUiEvent.OpenDataStore)
+                                showMenu = false
+                            }
+                        )
                     }
-
                 }
             )
         },
@@ -120,15 +133,12 @@ fun MainScreen(
                         onClick = { currentScreen = item },
                         icon = { Icon(item.icon, contentDescription = item.label) },
                         label = { Text(item.label) },
-                        // 🔥 关键：只有选中时才显示文字
                         alwaysShowLabel = false
                     )
                 }
             }
         }
-    )
-    { innerPadding ->
-        // 使用 Crossfade 做简单的切换动画 (可选)
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .padding(innerPadding)
@@ -139,9 +149,10 @@ fun MainScreen(
                     moduleStatus = moduleStatus,
                     serviceStatus = serviceStatus,
                     deviceInfoMap = deviceInfoMap,
-                    oneWord = oneWord,
-                    isOneWordLoading = isOneWordLoading,
-                    onOneWordClick = { onEvent(MainActivity.MainUiEvent.RefreshOneWord) },
+                    animalStatus = animalStatus,
+                    onlyOnceDaily = onlyOnceDaily,
+                    autoHandleOnceDaily = autoHandleOnceDaily,
+                    isFinishedToday = isFinishedToday,
                     onEvent = onEvent
                 )
 

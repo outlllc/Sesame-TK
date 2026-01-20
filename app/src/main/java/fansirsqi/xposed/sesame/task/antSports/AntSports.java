@@ -177,9 +177,10 @@ public class AntSports extends ModelTask {
                                 "a",
                                 step, Boolean.FALSE, "system"
                         );
-
+                        String maskName = UserMap.getCurrentMaskName();
                         if (success) {
-                            Log.other("同步步数🏃🏻‍♂️[" + step + "步]");
+                            Log.other(maskName + "运动同步步数🏃🏻‍♂️[" + step + "步]");
+                            Log.INSTANCE.animalStatus(maskName + "运动同步步数🏃🏻‍♂️[" + step + "步]");
                         } else {
                             Log.error(TAG, "同步运动步数失败:" + step);
                         }

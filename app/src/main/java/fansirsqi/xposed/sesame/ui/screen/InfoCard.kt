@@ -111,11 +111,11 @@ object DeviceInfoUtil {
         val verifyId = getSn(context)
 
         mapOf(
-            "Product" to "${Build.MANUFACTURER} ${Build.PRODUCT}",
-            "Device" to deviceName,
-            "Android Version" to "${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
-            "System Version" to "${Build.DISPLAY}",
-            "Verify ID" to verifyId,
+//            "Product" to "${Build.MANUFACTURER} ${Build.PRODUCT}",
+//            "Device" to deviceName,
+//            "Android Version" to "${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
+//            "System Version" to "${Build.DISPLAY}",
+//            "Verify ID" to verifyId,
             "Build Date" to "${BuildConfig.BUILD_DATE} ${BuildConfig.BUILD_TIME}"
         )
     }

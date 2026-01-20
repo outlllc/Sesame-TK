@@ -4,8 +4,12 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import fansirsqi.xposed.sesame.data.Config
+import fansirsqi.xposed.sesame.data.Status
 import fansirsqi.xposed.sesame.SesameApplication.Companion.PREFERENCES_KEY
 import fansirsqi.xposed.sesame.entity.UserEntity
+import fansirsqi.xposed.sesame.model.CustomSettings
+import fansirsqi.xposed.sesame.model.Model
 import fansirsqi.xposed.sesame.service.ConnectionState
 import fansirsqi.xposed.sesame.service.LsposedServiceManager
 import fansirsqi.xposed.sesame.ui.screen.DeviceInfoUtil
@@ -21,7 +25,6 @@ import fansirsqi.xposed.sesame.util.StatusManager
 import fansirsqi.xposed.sesame.util.maps.UserMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,11 +72,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- StateFlows ---
 
-    private val _oneWord = MutableStateFlow("正在获取句子...")
-    val oneWord: StateFlow<String> = _oneWord.asStateFlow()
+//    private val _oneWord = MutableStateFlow("正在获取句子...")
+//    val oneWord: StateFlow<String> = _oneWord.asStateFlow()
 
-    private val _isOneWordLoading = MutableStateFlow(false)
-    val isOneWordLoading = _isOneWordLoading.asStateFlow()
+//    private val _isOneWordLoading = MutableStateFlow(false)
+//    val isOneWordLoading = _isOneWordLoading.asStateFlow()
 
     private val _moduleStatus = MutableStateFlow<ModuleStatus>(ModuleStatus.Loading)
     val moduleStatus: StateFlow<ModuleStatus> = _moduleStatus.asStateFlow()
@@ -91,10 +94,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // 监听 LSPosed 服务连接 (仅用于更新详细版本信息)
     private val serviceListener: (ConnectionState) -> Unit = { _ ->
-        refreshModuleFrameworkStatus()
+        checkServiceState()
     }
 
     private var isInitialized = false
+
+    private val _animalStatus = MutableStateFlow("正在加载动物状态日志...")
+    val animalStatus: StateFlow<String> = _animalStatus.asStateFlow()
+
+    // 每日单次运行状态
+    private val _onlyOnceDaily = MutableStateFlow(CustomSettings.onlyOnceDaily.value)
+    val onlyOnceDaily: StateFlow<Boolean> = _onlyOnceDaily.asStateFlow()
+
+    // 每日单次自动处理状态
+    private val _autoHandleOnceDaily = MutableStateFlow(CustomSettings.autoHandleOnceDaily.value)
+    val autoHandleOnceDaily: StateFlow<Boolean> = _autoHandleOnceDaily.asStateFlow()
+
+    // 每日单次运行执行标志
+    private val _isFinishedToday = MutableStateFlow(false)
+    val isFinishedToday: StateFlow<Boolean> = _isFinishedToday.asStateFlow()
 
     fun initAppLogic() {
         if (isInitialized) return
@@ -106,11 +124,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // 加载初始数据
             reloadUserConfigs()
-            fetchOneWord()
+//            fetchOneWord()
 
             // 初始检查状态
-            refreshModuleFrameworkStatus()
-            refreshActiveUser()
+            checkServiceState()
 
             // 注册监听
             LsposedServiceManager.addConnectionListener(serviceListener)
@@ -193,6 +210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     UserMap.get(userId)?.let { newList.add(it) }
                 }
                 _userList.value = newList
+                checkServiceState()
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error reloading user configs", e)
@@ -222,6 +240,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             LsposedServiceManager.init()
             DataStore.init(Files.CONFIG_DIR)
+            // 🔥 核心修复 1: 在 UI 进程初始化模型 system。Config.load 依赖它来正确识别字段，避免因为“未知字段”导致重置配置。
+            Model.initAllModel()
         } catch (e: Exception) {
             Log.e(TAG, "Environment init failed", e)
         }
@@ -237,21 +257,123 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun fetchOneWord() {
-        viewModelScope.launch {
-            _isOneWordLoading.value = true
-            val startTime = System.currentTimeMillis()
-            val result = withContext(Dispatchers.IO) { FansirsqiUtil.getOneWord() }
-            val elapsedTime = System.currentTimeMillis() - startTime
-            if (elapsedTime < 2500) delay(500 - elapsedTime)
-            _oneWord.value = result
-            _isOneWordLoading.value = false
+//    fun fetchOneWord() {
+//        viewModelScope.launch {
+//            _isOneWordLoading.value = true
+//            val startTime = System.currentTimeMillis()
+//            val result = withContext(Dispatchers.IO) { FansirsqiUtil.getOneWord() }
+//            val elapsedTime = System.currentTimeMillis() - startTime
+//            if (elapsedTime < 2500) delay(500 - elapsedTime)
+//            _oneWord.value = result
+//            _isOneWordLoading.value = false
+//        }
+//    }
+
+    fun loadAnimalStatus() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val logFile = Files.getAnimalStatusLogFile()
+                val result = if (logFile.exists()) {
+                    val content = Files.readFromFile(logFile)
+                    content.lines().filter { it.isNotBlank() }
+                        .takeLast(25)
+                        .map { line ->
+                            // 如果 Logback 自动加了时间戳，可以在这里处理显示逻辑
+                            // 例如：去除 SLF4J 的时间前缀，仅显示 msg
+                            line.replaceFirst(Regex("""^\d{2}日 (\d{2}:\d{2}):\d{2}\.\d+ """), "$1 ")
+                        }
+                        .joinToString("\n")
+                        .ifEmpty { "日志文件为空" }
+                } else {
+                    "日志文件不存在"
+                }
+                _animalStatus.value = result
+                // 🔥 刷新状态：日志变动通常意味着任务进度有更新，此时静默加载 status.json 以同步今日完成状态
+                val userId = UserMap.currentUid
+                if (!userId.isNullOrEmpty()) {
+                    Status.load(userId, false) // 设为 false，静默加载，不打印日志
+                    _isFinishedToday.value = Status.hasFlagToday("OnceDaily::Finished")
+                }
+            } catch (e: Exception) {
+                _animalStatus.value = "加载失败: ${e.localizedMessage}"
+            }
         }
     }
 
+    /**
+     * 检查服务状态并同步用户信息
+     */
+    fun checkServiceState() {
+        refreshModuleFrameworkStatus()
+        refreshActiveUser()
+
+        val activeUserEntity = _activeUser.value
+
+        if (activeUserEntity != null) {
+            val userId = activeUserEntity.userId
+            if (!userId.isNullOrEmpty()) {
+                // 🔥 核心修复 3: 增加判断，避免每次 onResume 导致的重复 Config.load 日志 and 潜在冲突。
+                // 只有当用户真的切换了，或者 Config 尚未初始化时才加载。
+                if (UserMap.currentUid != userId || !Config.isLoaded()) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            UserMap.setCurrentUserId(userId)
+                            UserMap.loadSelf(userId)
+                            Config.load(userId)
+                            Status.load(userId) // 切换用户时允许打印一次日志
+
+                            _onlyOnceDaily.value = CustomSettings.onlyOnceDaily.value
+                            _autoHandleOnceDaily.value = CustomSettings.autoHandleOnceDaily.value
+                            _isFinishedToday.value = Status.hasFlagToday("OnceDaily::Finished")
+
+                            Log.i(TAG, "已切换/初始化用户: $userId, 仅运行一次: ${_onlyOnceDaily.value}, 今日状态: ${_isFinishedToday.value}")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "加载用户 $userId 状态异常: ${e.message}")
+                            _isFinishedToday.value = false // 异常时重置状态
+                        }
+                    }
+                } else {
+                    // 如果 UID 没变，也要刷新状态位，因为 status.json 可能被 Xposed 模块在后台更新了
+                    viewModelScope.launch(Dispatchers.IO) {
+                        Status.load(userId, false) // 设为 false，静默同步，不打印日志
+                        _onlyOnceDaily.value = CustomSettings.onlyOnceDaily.value
+                        _autoHandleOnceDaily.value = CustomSettings.autoHandleOnceDaily.value
+                        _isFinishedToday.value = Status.hasFlagToday("OnceDaily::Finished")
+                    }
+                }
+            }
+        } else {
+            _isFinishedToday.value = false // 无活跃用户时重置
+        }
+    }
+
+    /**
+     * 同步应用图标状态 (隐藏/显示)
+     */
     fun syncIconState(isHidden: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             IconManager.syncIconState(getApplication(), isHidden)
+        }
+    }
+
+    /**
+     * 切换每日单次运行设置
+     */
+    fun toggleOnlyOnceDaily() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 调用三段式逻辑层
+            CustomSettings.toggleOnceDailyMode()
+
+            // 实时同步状态流，触发 Compose 重组
+            _onlyOnceDaily.value = CustomSettings.onlyOnceDaily.value
+            _autoHandleOnceDaily.value = CustomSettings.autoHandleOnceDaily.value
+            _isFinishedToday.value = Status.hasFlagToday("OnceDaily::Finished")
+
+            // 保存配置
+            val uid = UserMap.currentUid
+            if (!uid.isNullOrEmpty()) {
+                Config.save(uid, true)
+            }
         }
     }
 }

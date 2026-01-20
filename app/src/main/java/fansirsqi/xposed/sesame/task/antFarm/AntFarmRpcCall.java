@@ -24,6 +24,9 @@ public class AntFarmRpcCall {
      * @throws JSONException 异常内容
      */
     public static String enterFarm(String userId, String targetUserId) throws JSONException {
+        return enterFarm(userId, targetUserId, "chInfo_ch_appcenter__chsub_9patch");
+    }
+    public static String enterFarm(String userId, String targetUserId, String source) throws JSONException {
         JSONObject args = new JSONObject();
         args.put("animalId", "");
         args.put("bizCode", "");
@@ -39,7 +42,7 @@ public class AntFarmRpcCall {
         args.put("sceneCode", "ANTFARM");
         args.put("shareId", "");
         args.put("shareUniqueId", System.currentTimeMillis() + "_" + targetUserId);
-        args.put("source", "ANTFOREST");
+        args.put("source", source);  // "chInfo_ch_appcenter__chsub_9patch"  或 "ANTFOREST"
         args.put("starFarmId", "");
         args.put("subBizCode", "");
         args.put("touchRecordId", "");
@@ -425,10 +428,24 @@ public class AntFarmRpcCall {
 
     /* 日常任务 */
     public static String doFarmTask(String bizKey) {
-        return RequestManager.requestString("com.alipay.antfarm.doFarmTask",
-                "[{\"bizKey\":\"" + bizKey
-                        + "\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"version\":\""
-                        + VERSION + "\"}]");
+        try {
+            JSONObject jo = new JSONObject();
+            jo.put("bizKey", bizKey);
+            jo.put("requestType", "NORMAL");
+            jo.put("sceneCode", "ANTFARM");
+            jo.put("source", "H5");
+            jo.put("version", VERSION);
+
+            String requestData = new JSONArray().put(jo).toString();
+
+            return RequestManager.requestString(
+                    "com.alipay.antfarm.doFarmTask",
+                    requestData
+            );
+        } catch (Exception e) {
+            Log.printStackTrace("doFarmTask", e);
+            return "";
+        }
     }
 
     public static String queryTabVideoUrl() {
@@ -693,9 +710,31 @@ public class AntFarmRpcCall {
         return RequestManager.requestString("com.alipay.antfarm.inviteFriendVisitFamily", args);
     }
 
-    public static String familyEatTogether(String groupId, JSONArray friendUserIdList, JSONArray cuisines) {
-        String args = "[{\"cuisines\":" + cuisines + ",\"friendUserIds\":" + friendUserIdList + ",\"groupId\":\"" + groupId + "\",\"requestType\":\"NORMAL\",\"sceneCode\":\"ANTFARM\",\"source\":\"H5\",\"spaceType\":\"ChickFamily\"}]";
-        return RequestManager.requestString("com.alipay.antfarm.familyEatTogether", args);
+    public static String familyEatTogether(String groupId, JSONArray friendUserIds, JSONArray cuisines) {
+        try {
+            // 构造请求数据对象
+            JSONObject jo = new JSONObject();
+            jo.put("cuisines", cuisines);
+            jo.put("friendUserIds", friendUserIds);
+            jo.put("groupId", groupId);
+            jo.put("requestType", "NORMAL");
+            jo.put("sceneCode", "ANTFARM");
+            jo.put("source", "H5");
+            jo.put("spaceType", "ChickFamily");
+
+            String args = new JSONArray().put(jo).toString();
+
+            return RequestManager.requestString(
+                    "com.alipay.antfarm.familyEatTogether",
+                    args,
+                    "antfarm",
+                    "familyEatTogether",
+                    "AntFarmWebRpc"
+            );
+        } catch (Exception e) {
+            Log.printStackTrace("com.alipay.antfarm.familyEatTogether", e);
+            return "";
+        }
     }
 
     public static String queryRecentFarmFood(int queryNum) {
@@ -829,10 +868,18 @@ public class AntFarmRpcCall {
         args.put("bizKey", bizKey);
         args.put("requestType", "RPC");
         args.put("sceneCode", "ANTFARM");
-        args.put("source", "H5");
+        args.put("source", "antfarm_villa");
         args.put("taskSceneCode", taskSceneCode);
         String params = "[" + args + "]";
-        return RequestManager.requestString("com.alipay.antfarm.doFarmTask", params);
+
+        // 显式指定 facadeName 等参数，可以确保请求逻辑与官方日志完全闭环
+        return RequestManager.requestString(
+                "com.alipay.antfarm.doFarmTask",
+                params,
+                "antfarm",
+                "doFarmTask",
+                "AntFarmWebRpc"
+        );
     }
 
     /**

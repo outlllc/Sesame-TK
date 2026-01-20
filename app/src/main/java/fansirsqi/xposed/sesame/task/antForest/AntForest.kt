@@ -1303,11 +1303,11 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      *
      * @return 用户的主页信息，如果发生错误则返回null。
      */
-    private fun querySelfHome(): JSONObject? {
+    private fun querySelfHome(source: String = "chInfo_ch_appcenter__chsub_9patch"): JSONObject? {
         var userHomeObj: JSONObject? = null
         try {
             val start = System.currentTimeMillis()
-            val response = AntForestRpcCall.queryHomePage()
+            val response = AntForestRpcCall.queryHomePage(source)
             if (response.trim { it <= ' ' }.isEmpty()) {
                 //               Log.error(TAG, "获取自己主页信息失败：响应为空$response")
                 return null
@@ -1324,7 +1324,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 安全获取服务器时间，如果没有则使用当前时间
             val serverTime = userHomeObj.optLong("now", System.currentTimeMillis())
             val offsetTime = offsetTimeMath.nextInteger(((start + end) / 2 - serverTime).toInt())
-           // Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime")
+            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime",0)
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "查询自己主页异常", t)
         }
@@ -1357,7 +1357,7 @@ class AntForest : ModelTask(), EnergyCollectCallback {
             // 安全获取服务器时间，如果没有则使用当前时间
             val serverTime = friendHomeObj.optLong("now", System.currentTimeMillis())
             val offsetTime = offsetTimeMath.nextInteger(((start + end) / 2 - serverTime).toInt())
-           //  Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime")
+            Log.record(TAG, "服务器时间：$serverTime，本地与服务器时间差：$offsetTime", 0)
         } catch (t: Throwable) {
             Log.printStackTrace(TAG, "查询好友主页异常, userId: " + UserMap.getMaskName(userId), t)
         }
@@ -4867,8 +4867,9 @@ class AntForest : ModelTask(), EnergyCollectCallback {
      */
     suspend fun manualWhackMole(modeIndex: Int, games: Int) {
         try {
-            val obj = querySelfHome()
+            val obj = querySelfHome("senlinguangchangdadishu")
             if (obj != null) {
+                delay((1000..2000).random().toLong())
                 // 确定模式：1 为兼容，2 为激进
                 val mode = if (modeIndex == 2) WhackMole.Mode.AGGRESSIVE else WhackMole.Mode.COMPATIBLE
 

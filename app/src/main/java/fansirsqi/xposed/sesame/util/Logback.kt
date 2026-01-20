@@ -2,6 +2,7 @@ package fansirsqi.xposed.sesame.util
 
 import android.content.Context
 import android.util.Log
+import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.android.LogcatAppender
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder
@@ -18,7 +19,7 @@ object Logback {
     // 定义所有 Logger 的名称
     val LOG_NAMES = listOf(
         "runtime", "system", "record", "debug", "forest",
-        "farm", "other", "error", "capture", "captcha"
+        "farm", "other", "error", "capture", "captcha", "animal_status"
     )
 
     /**
@@ -46,7 +47,7 @@ object Logback {
 
             // 为根 Logger 添加 Logcat 输出
             lc.getLogger(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).apply {
-                // 默认先不设 Level，让它继承或默认 DEBUG/INFO，避免过滤掉重要信息
+                level = Level.DEBUG // 默认根级别
                 addAppender(logcatAppender)
             }
 
@@ -63,7 +64,6 @@ object Logback {
     fun initFileLogging(context: Context) {
         if (isFileInitialized) return
 
-        // 🔥 修复点：恢复原有的路径判断逻辑
         val logDir = resolveLogDir(context)
 
         try {
@@ -82,68 +82,60 @@ object Logback {
     }
 
     /**
-     * 核心路径逻辑：完全还原 Java 版本的判断
-     * 优先 Files.LOG_DIR -> 失败则回退到 Context.external -> Context.files
+     * 核心路径逻辑
      */
     private fun resolveLogDir(context: Context): String {
-        // 1. 尝试使用 Files 类中定义的路径
         var targetDir = Files.LOG_DIR
 
-        // 尝试创建目录，确保 exists() 判断准确
         if (!targetDir.exists()) {
             targetDir.mkdirs()
         }
 
-        // 2. 检查是否有权写入
         if (!targetDir.exists() || !targetDir.canWrite()) {
-            // 回退逻辑
             val fallbackDir = context.getExternalFilesDir("logs")
             targetDir = fallbackDir ?: File(context.filesDir, "logs")
         }
 
-        // 3. 确保目录结构完整 (创建 bak 子目录)
         File(targetDir, "bak").mkdirs()
 
         return targetDir.absolutePath + File.separator
     }
 
     private fun addFileAppender(lc: LoggerContext, logName: String, logDir: String) {
-        // 1. 先创建实例，不要直接链式 apply，以便后面引用它
         val fileAppender = RollingFileAppender<ILoggingEvent>()
 
         fileAppender.apply {
             context = lc
             name = "FILE-$logName"
             file = "$logDir$logName.log"
+            isAppend = true
 
-            // 2. 配置 Policy (保持与 Java 版本参数一致)
+            // 配置滚动策略
             val policy = SizeAndTimeBasedRollingPolicy<ILoggingEvent>().apply {
                 context = lc
                 fileNamePattern = "${logDir}bak/$logName-%d{yyyy-MM-dd}.%i.log"
-                setMaxFileSize(FileSize.valueOf("7MB")) // 还原为 50MB
+                setMaxFileSize(FileSize.valueOf("7MB"))
                 setTotalSizeCap(FileSize.valueOf("32MB"))
                 maxHistory = 3
-                isCleanHistoryOnStart = true // 还原 Java 中的 setCleanHistoryOnStart(true)
-                // 必须调用 setParent
+                isCleanHistoryOnStart = true
                 setParent(fileAppender)
                 start()
             }
             rollingPolicy = policy
 
-            // 3. 配置 Encoder
+            // 配置编码器
             encoder = PatternLayoutEncoder().apply {
                 context = lc
                 pattern = "%d{dd日 HH:mm:ss.SS} %msg%n"
                 start()
             }
 
-            // 启动 Appender
             start()
         }
 
-        // 4. 获取对应的 Logger 并添加 Appender
+        // 获取对应的 Logger 并添加 Appender
         lc.getLogger(logName).apply {
-            // 这里可以不强制 setLevel，沿用默认配置
+            level = Level.ALL // 显式设置级别，防止滚动后因为继承问题导致级别失效
             isAdditive = true
             addAppender(fileAppender)
         }

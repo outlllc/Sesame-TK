@@ -9,6 +9,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.rikka.tools.refine)
 }
+
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.addAll(listOf("-Xlint:unchecked", "-Xlint:deprecation"))
+}
+
 var isCIBuild: Boolean = System.getenv("CI").toBoolean()
 
 //isCIBuild = true // 没有c++源码时开启CI构建, push前关闭

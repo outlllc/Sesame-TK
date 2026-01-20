@@ -9,10 +9,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
@@ -144,14 +146,68 @@ object WhackMole {
     @SuppressLint("DefaultLocale")
     private suspend fun runAggressiveMode() {
         startTime.set(System.currentTimeMillis())
+        // 1. 获取针对 20 局优化的激进动态间隔配置
+        val dynamicInterval = intervalCalculator.calculateDynamicIntervalnew(GAME_DURATION_MS, totalGames)
+        val sessions = Collections.synchronizedList(mutableListOf<GameSession>())
+
+        coroutineScope {
+            for (roundNum in 1..totalGames) {
+                // 2. 启动前安全检查：预留 2.2 秒给结算，防止超时
+                val currentElapsed = System.currentTimeMillis() - startTime.get()
+                if (currentElapsed > (GAME_DURATION_MS - 2200L)) {
+                    Log.record(TAG, "⏰ 时间临界，停止启动新局 (已成功开启 ${sessions.size} 局)")
+                    break
+                }
+
+                // 3. 并发启动模式：使用 launch 避免网络延迟阻塞下一次启动的计时
+                launch {
+                    val session = startSingleRound(roundNum)
+                    if (session != null) {
+                        sessions.add(session)
+                    }
+                }
+
+                // 4. 根据新算法分配启动间隔，实现精准的“错峰”并发
+                if (roundNum < totalGames) {
+                    val remainingTime = GAME_DURATION_MS - (System.currentTimeMillis() - startTime.get())
+                    val nextDelay = intervalCalculator.calculateNextDelaynew(
+                        dynamicInterval, roundNum, totalGames, remainingTime
+                    )
+                    if (nextDelay > 0) delay(nextDelay)
+                }
+            }
+        }
+
+        // 5. 等待至 12 秒统一结算窗口
+        val waitTime = max(0L, GAME_DURATION_MS - (System.currentTimeMillis() - startTime.get()))
+        delay(waitTime)
+
+        if (sessions.isEmpty()) {
+            Log.record(TAG, "❌ 未能成功启动任何游戏")
+            return
+        }
+
+        // 6. 批量结算：保持微小随机间隔模拟人工，避免瞬间结算请求过载
+        var totalEnergy = 0
+        sessions.sortBy { it.roundNumber } // 按启动顺序结算
+        sessions.forEachIndexed { index, session ->
+            if (index > 0) delay((200..250).random().toLong())
+            totalEnergy += settleStandardRound(session)
+        }
+        Log.forest("森林能量⚡️[智能并发模式${sessions.size}局 总计${totalEnergy}g]")
+    }
+
+    @SuppressLint("DefaultLocale")
+    private suspend fun runAggressiveModebak() {
+        startTime.set(System.currentTimeMillis())
         val dynamicInterval = intervalCalculator.calculateDynamicInterval(GAME_DURATION_MS, totalGames)
 
         val sessions = mutableListOf<GameSession>()
         try {
             for (roundNum in 1..totalGames) {
-                // 1. 启动单局 (使用标准 startWhackMole)
                 val session = startSingleRound(roundNum)
-                if (session != null) sessions.add(session)
+                if (session == null) break
+                sessions.add(session)
 
                 if (roundNum < totalGames) {
                     val remaining = GAME_DURATION_MS - (System.currentTimeMillis() - startTime.get())
@@ -161,15 +217,19 @@ object WhackMole {
         } catch (e: CancellationException) {
             return
         }
+        if (sessions.isEmpty()) {
+            Log.record(TAG, "❌ 未能成功启动任何游戏")
+            return
+        }
 
         // 等待结算窗口
         val waitTime = max(0L, GAME_DURATION_MS - (System.currentTimeMillis() - startTime.get()))
         delay(waitTime)
 
-        // 2. 批量结算 (使用标准 settlementWhackMole)
+        // 批量结算 (使用标准 settlementWhackMole)
         var totalEnergy = 0
-        sessions.forEach { session ->
-            delay(200)
+        sessions.forEachIndexed { index, session ->
+            if (index > 0) delay((200..220).random().toLong())
             totalEnergy += settleStandardRound(session)
         }
         Log.forest("森林能量⚡️[激进模式${sessions.size}局 总计${totalEnergy}g]")
@@ -182,9 +242,15 @@ object WhackMole {
             if (!ResChecker.checkRes(TAG, startResp)) return null
 
             if (!startResp.optBoolean("canPlayToday", true)) {
+                Log.record(TAG, "今日打地鼠次数已达上限")
                 Status.setFlagToday(EXEC_FLAG)
-                throw CancellationException("Today limit reached")
+                return null
             }
+
+            delay((10..15).random().toLong())
+            try {
+                AntForestRpcCall.flowHubEntrance()
+            } catch (e: Exception) { }
 
             val token = startResp.optString("token")
             Toast.show("打地鼠 第${round}局启动\nToken: $token")

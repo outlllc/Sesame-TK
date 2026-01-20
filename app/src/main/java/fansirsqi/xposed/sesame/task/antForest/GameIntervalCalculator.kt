@@ -56,6 +56,33 @@ object GameIntervalCalculator {
     }
 
     /**
+     * 专门为高并发(如20局)设计的动态间隔计算器
+     * 针对大量局数缩减了最小硬性限制，并优化了时间分配比例
+     */
+    fun calculateDynamicIntervalnew(totalDurationMs: Long, gameCount: Int): DynamicInterval {
+        // 预留缓冲时间：2.0秒 (保持与标准版一致的缓冲安全边际)
+        val totalAvailableTime = totalDurationMs - 2000L
+        
+        if (gameCount <= 1) {
+            return DynamicInterval(0L, 0L)
+        }
+        
+        val averageInterval = totalAvailableTime / (gameCount - 1)
+        
+        // 激进模式：基础间隔设为平均值的 85%
+        val baseInterval = (averageInterval * 0.85).toLong()
+        
+        // 随机波动范围缩小到 10%
+        val randomRange = (averageInterval * 0.1).toLong()
+        
+        // 确保最小基础间隔不低于 400ms
+        val finalBaseInterval = maxOf(baseInterval, 400L)
+        val finalRandomRange = maxOf(randomRange, 50L)
+        
+        return DynamicInterval(finalBaseInterval, finalRandomRange)
+    }
+
+    /**
      * 计算下一次的延迟时间
      * 考虑剩余时间和已完成的局数，动态调整间隔
      * @param interval 动态间隔配置
@@ -84,6 +111,30 @@ object GameIntervalCalculator {
         
         // 确保不超过安全延迟时间，同时不低于最小间隔
         return minOf(maxOf(calculatedDelay, 500L), maxSafeDelay)
+    }
+
+    /**
+     * 专门为高并发设计的延迟计算方法
+     * 允许更小的最小间隔 (300ms)
+     */
+    fun calculateNextDelaynew(
+        interval: DynamicInterval,
+        currentRound: Int,
+        totalRounds: Int,
+        remainingTime: Long
+    ): Long {
+        val remainingRounds = totalRounds - currentRound
+        if (remainingRounds <= 0) {
+            return 0L
+        }
+        
+        // 预留 500ms 整体缓冲
+        val maxSafeDelay = remainingTime / remainingRounds - 500L 
+        
+        val calculatedDelay = interval.baseInterval + (-interval.randomRange..interval.randomRange).random()
+        
+        // 确保不超过安全延迟时间，同时不低于 300ms
+        return minOf(maxOf(calculatedDelay, 300L), maxOf(maxSafeDelay, 0L))
     }
 
 }

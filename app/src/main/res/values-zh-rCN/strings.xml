@@ -92,7 +92,7 @@
     <string name="sync_step_count">自定义同步步数</string>
     <string name="use_double_card">使用双击卡</string>
     <string name="wait_when_exception">异常等待时间(分钟)</string>
-    <string name="other_log">查看其他日志</string>
+    <string name="other_log">其他日志</string>
     <string name="search">搜索</string>
     <string name="last">上一个</string>
     <string name="next">下一个</string>
@@ -203,5 +203,7 @@
     <string name="all_log_file">全部日志</string>
     <string name="error_log_file">异常日志</string>
     <string name="xposed_description">大鹏一日同风起，扶摇直上九万里。</string>
+    <string name="manual_run">手动运行</string>
+    <string name="manual_stop">手动停止</string>
 
 </resources>

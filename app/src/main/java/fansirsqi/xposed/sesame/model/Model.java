@@ -29,7 +29,8 @@ public abstract class Model {
 
     public Model() {
         // 基础模块默认启用，其他模块默认禁用
-        boolean defaultValue = "基础".equals(getName());
+        String name = getName();
+        boolean defaultValue = "基础".equals(name) || "会员".equals(name);
         this.enableField = new BooleanModelField("enable", getEnableFieldName(), defaultValue);
     }
 

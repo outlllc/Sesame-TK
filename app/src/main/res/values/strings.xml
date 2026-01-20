@@ -205,5 +205,7 @@ If you purchased it, please contact the seller for a refund or report the seller
     <string name="all_log_file">全部日志</string>
     <string name="error_log_file">异常日志</string>
     <string name="xposed_description">大鹏一日同风起，扶摇直上九万里。</string>
+    <string name="manual_run">手动运行</string>
+    <string name="manual_stop">手动停止</string>
 
 </resources>

@@ -102,6 +102,7 @@ class ApplicationHook {
         const val RE_LOGIN: String = "com.eg.android.AlipayGphone.sesame.reLogin"
         const val STATUS: String = "com.eg.android.AlipayGphone.sesame.status"
         const val RPC_TEST: String = "com.eg.android.AlipayGphone.sesame.rpctest"
+        const val STOP: String = "com.eg.android.AlipayGphone.sesame.stop"
         const val MANUAL_TASK: String = "com.eg.android.AlipayGphone.sesame.manual_task"
     }
 
@@ -395,8 +396,13 @@ class ApplicationHook {
                 })
                 BroadcastActions.RE_LOGIN -> reOpenApp()
                 BroadcastActions.RPC_TEST -> handleRpcTest(intent)
+                BroadcastActions.STOP -> {
+                    record(TAG, "🛑 收到手动停止指令")
+                    execute { stopHandler() }
+                    show("🛑 任务已尝试停止")
+                }
                 BroadcastActions.MANUAL_TASK -> {
-                    record(TAG, "🚀 收到手动庄园任务指令")
+                    record(TAG, "🚀 收到手动庄园任务流指令")
                     execute {
                         val taskName = intent.getStringExtra("task")
                         if (taskName != null) {
@@ -629,7 +635,7 @@ class ApplicationHook {
 
         // --- 初始化核心逻辑 ---
         @Synchronized
-        private fun initHandler(): Boolean {
+        fun initHandler(): Boolean {
             try {
                 if (init) destroyHandler()
 
@@ -745,7 +751,7 @@ class ApplicationHook {
             if (mainTask != null) mainTask!!.startTask(false)
         }
 
-        private fun stopHandler() {
+        fun stopHandler() {
             if (mainTask != null) mainTask!!.stopTask()
             stopAllTask()
         }
@@ -868,6 +874,7 @@ class ApplicationHook {
                 filter.addAction(BroadcastActions.RE_LOGIN)
                 filter.addAction(BroadcastActions.STATUS)
                 filter.addAction(BroadcastActions.RPC_TEST)
+                filter.addAction(BroadcastActions.STOP)
                 filter.addAction(BroadcastActions.MANUAL_TASK)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

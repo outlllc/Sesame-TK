@@ -128,6 +128,5 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-
     </application>
 </manifest>

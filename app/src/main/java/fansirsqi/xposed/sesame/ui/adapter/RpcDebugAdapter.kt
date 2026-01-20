@@ -17,7 +17,8 @@ class RpcDebugAdapter(
     private val onRun: (RpcDebugEntity) -> Unit,
     private val onEdit: (RpcDebugEntity) -> Unit,
     private val onDelete: (RpcDebugEntity) -> Unit,
-    private val onCopy: (RpcDebugEntity) -> Unit
+    private val onCopy: (RpcDebugEntity) -> Unit,
+    private val showEditDelete: Boolean = true,
 ) : RecyclerView.Adapter<RpcDebugAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -40,9 +41,21 @@ class RpcDebugAdapter(
         holder.tvName.text = item.getDisplayName()
         holder.tvMethod.text = item.method
         holder.btnRun.setOnClickListener { onRun(item) }
-        holder.btnEdit.setOnClickListener { onEdit(item) }
-        holder.btnDelete.setOnClickListener { onDelete(item) }
-        holder.btnCopy.setOnClickListener { onCopy(item) }
+
+        if (showEditDelete) {
+            holder.btnEdit.visibility = View.VISIBLE
+            holder.btnDelete.visibility = View.VISIBLE
+            holder.btnCopy.visibility = View.VISIBLE
+
+            holder.btnEdit.setOnClickListener { onEdit?.invoke(item) }
+            holder.btnDelete.setOnClickListener { onDelete?.invoke(item) }
+            holder.btnCopy.setOnClickListener { onCopy?.invoke(item) }
+        } else {
+            holder.btnEdit.visibility = View.GONE
+            holder.btnDelete.visibility = View.GONE
+            holder.btnCopy.visibility = View.GONE
+        }
+
         // 点击整行也可以运行
         holder.itemView.setOnClickListener { onRun(item) }
     }

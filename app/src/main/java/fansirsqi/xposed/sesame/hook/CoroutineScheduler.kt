@@ -131,14 +131,16 @@ class CoroutineScheduler(private val context: Context) {
     fun scheduleWakeupAlarm(
         triggerAtMillis: Long,
         requestCode: Int,
-        isMainAlarm: Boolean
+        isMainAlarm: Boolean,
+        customAction: String? = null
     ): Boolean {
         if (!canScheduleExactAlarms()) {
             Log.error(TAG, "❌ 无法调度唤醒任务：缺少 SCHEDULE_EXACT_ALARM 权限。请在系统设置中为应用开启“闹钟和提醒”权限。")
             return false
         }
         return try {
-            val intent = Intent("com.eg.android.AlipayGphone.sesame.execute").apply {
+            val actionName = customAction ?: "com.eg.android.AlipayGphone.sesame.execute"
+            val intent = Intent(actionName).apply {
                 putExtra("alarm_triggered", true)
                 putExtra("waken_at_time", true)
                 if (!isMainAlarm) {

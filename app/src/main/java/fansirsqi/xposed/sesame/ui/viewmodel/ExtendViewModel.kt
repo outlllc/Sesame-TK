@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.fasterxml.jackson.core.type.TypeReference
 import fansirsqi.xposed.sesame.BuildConfig
 import fansirsqi.xposed.sesame.R
@@ -17,6 +18,8 @@ import fansirsqi.xposed.sesame.util.Detector
 import fansirsqi.xposed.sesame.util.FansirsqiUtil
 import fansirsqi.xposed.sesame.util.Log
 import fansirsqi.xposed.sesame.util.ToastUtil
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
 // 定义菜单项数据类
@@ -41,6 +44,9 @@ sealed class ExtendDialog {
         val initialValue: String = "",
         val onConfirm: (String) -> Unit
     ) : ExtendDialog()
+
+    // 等待对话框
+    data class WaitingDialog(val message: String) : ExtendDialog()
 }
 
 class ExtendViewModel : ViewModel() {
@@ -79,12 +85,12 @@ class ExtendViewModel : ViewModel() {
             currentDialog = ExtendDialog.ClearPhotoConfirm(currentCount)
         })
 
-        // 3. 每日单次运行 (特殊处理：调用原有逻辑)
-        menuItems.add(MenuItem("每日单次运行设置") {
-            CustomSettings.showSingleRunMenu(context) { loadData(context) }
+        // 4. 获取 ReferToken
+        menuItems.add(MenuItem("获取 ReferToken") {
+            startCaptureToken(context)
         })
 
-        // 4. Debug 功能
+        // 5. Debug 功能
         if (BuildConfig.DEBUG) {
 
             menuItems.add(MenuItem("写入光盘") {
@@ -106,6 +112,32 @@ class ExtendViewModel : ViewModel() {
             menuItems.add(MenuItem("TestShow") {
                 ToastUtil.showToast(context, "shizuku:"+isShizukuReady().toString())
             })
+        }
+    }
+
+    private fun startCaptureToken(context: Context) {
+        // 1. 清除信号
+        DataStore.remove("AntFarmReferToken_Captured_Signal")
+        // 2. 显示等待框
+        currentDialog = ExtendDialog.WaitingDialog("正在等待捕获...\n\n请打开支付宝 -> 蚂蚁庄园 -> 任务列表 -> 点击抽抽乐或相应广告")
+        // 3. 开启轮询
+        viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
+            var captured = false
+            while (System.currentTimeMillis() - startTime < 60000) { // 等待1分钟
+                val signal = DataStore.get("AntFarmReferToken_Captured_Signal", Long::class.java)
+                if (signal != null && signal >= startTime) {
+                    captured = true
+                    break
+                }
+                delay(1000)
+            }
+            dismissDialog()
+            if (captured) {
+                ToastUtil.showToast(context, "✅ ReferToken 捕获成功并已保存！")
+            } else {
+                ToastUtil.showToast(context, "❌ 捕获超时，请重试")
+            }
         }
     }
 

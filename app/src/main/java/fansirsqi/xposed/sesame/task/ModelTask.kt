@@ -17,7 +17,6 @@ import kotlinx.coroutines.sync.withLock
 import lombok.Setter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.coroutineContext
 
 /**
  * 基于协程的抽象任务模型类
@@ -592,19 +591,28 @@ abstract class ModelTask : Model() {
             Dispatchers.Default + SupervisorJob() + CoroutineName("GlobalTaskManager")
         )
 
+        /** 全局停止信号标志位 */
+        @Volatile
+        @JvmField
+        var isGlobalStopRequested: Boolean = false
+
         /**
          * 停止所有任务（协程版本）
          */
         @JvmStatic
         fun stopAllTask() {
-            globalTaskScope.launch {
-                for (model in modelArray) {
-                    if (model is ModelTask) {
-                        try {
-                            model.stopTask()
-                        } catch (e: Exception) {
-                            Log.printStackTrace("停止任务异常", e)
-                        }
+            // 设置全局停止信号，强制终止所有循环
+            isGlobalStopRequested = true
+            Log.record(TAG, "🛑 已触发全局任务停止信号")
+
+            // 【关键修复】同步执行停止逻辑，避免与随后的启动逻辑产生竞争。
+            // 之前的异步执行 (globalTaskScope.launch) 可能会导致刚启动的任务被意外终止。
+            for (model in modelArray) {
+                if (model is ModelTask) {
+                    try {
+                        model.stopTask()
+                    } catch (e: Exception) {
+                        Log.printStackTrace("停止任务异常", e)
                     }
                 }
             }

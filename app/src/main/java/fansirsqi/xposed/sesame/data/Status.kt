@@ -420,14 +420,20 @@ class Status {
         @Synchronized
         @JvmStatic
         fun load(currentUid: String?): Status {
+            return load(currentUid, true)
+        }
+
+        @Synchronized
+        @JvmStatic
+        fun load(currentUid: String?, showLog: Boolean): Status {
             if (StringUtil.isEmpty(currentUid)) {
-                Log.record(TAG, "用户为空，状态加载失败")
+                if (showLog) Log.record(TAG, "用户为空，状态加载失败")
                 throw RuntimeException("用户为空，状态加载失败")
             }
             try {
                 val statusFile = Files.getStatusFile(currentUid)
                 if (statusFile!!.exists()) {
-                    Log.record(TAG, "加载 status.json")
+                    if (showLog) Log.record(TAG, "加载 status.json")
                     val json = Files.readFromFile(statusFile)
                     if (!json.trim().isEmpty()) {
                         // 使用 Jackson 更新现有对象
@@ -435,21 +441,26 @@ class Status {
                         // 格式化检查
                         val formatted = JsonUtil.formatJson(INSTANCE)
                         if (formatted != null && formatted != json) {
-                            Log.record(TAG, "重新格式化 status.json")
+                            if (showLog) Log.record(TAG, "重新格式化 status.json")
                             Files.write2File(formatted, statusFile)
                         }
                     } else {
-                        Log.record(TAG, "配置文件为空，初始化默认配置")
+                        if (showLog) Log.record(TAG, "配置文件为空，初始化默认配置")
                         initializeDefaultConfig(statusFile)
                     }
                 } else {
-                    Log.record(TAG, "配置文件不存在，初始化默认配置")
+                    if (showLog) Log.record(TAG, "配置文件不存在，初始化默认配置")
                     initializeDefaultConfig(statusFile)
                 }
             } catch (t: Throwable) {
                 Log.printStackTrace(TAG, t)
-                Log.record(TAG, "状态文件格式有误，已重置")
+                if (showLog) Log.record(TAG, "状态文件格式有误，已重置")
                 resetAndSaveConfig()
+            }
+
+            // 加载后立即检查日期，如果发现跨天则执行重置
+            if (updateDay(Calendar.getInstance())) {
+                if (showLog) Log.record(TAG, "发现日期更新，重置 status.json 状态")
             }
 
             // 这里逻辑有点奇怪，如果 saveTime 是 0，则设为当前时间。

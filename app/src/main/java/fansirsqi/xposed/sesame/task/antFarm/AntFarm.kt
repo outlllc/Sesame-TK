@@ -2,6 +2,7 @@
 
 package fansirsqi.xposed.sesame.task.antFarm
 
+import androidx.compose.ui.geometry.isEmpty
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
@@ -12,6 +13,7 @@ import fansirsqi.xposed.sesame.entity.MapperEntity
 import fansirsqi.xposed.sesame.entity.OtherEntityProvider.farmFamilyOption
 import fansirsqi.xposed.sesame.entity.ParadiseCoinBenefit
 import fansirsqi.xposed.sesame.hook.Toast
+import fansirsqi.xposed.sesame.hook.keepalive.SmartSchedulerManager
 import fansirsqi.xposed.sesame.hook.rpc.intervallimit.RpcIntervalLimit.addIntervalLimit
 import fansirsqi.xposed.sesame.model.BaseModel
 import fansirsqi.xposed.sesame.model.ModelFields
@@ -31,6 +33,7 @@ import fansirsqi.xposed.sesame.task.antFarm.AntFarmFamily.familySign
 import fansirsqi.xposed.sesame.task.antForest.TaskTimeChecker
 import fansirsqi.xposed.sesame.util.CoroutineUtils
 import fansirsqi.xposed.sesame.util.DataStore
+import fansirsqi.xposed.sesame.util.GlobalThreadPools
 import fansirsqi.xposed.sesame.util.JsonUtil
 import fansirsqi.xposed.sesame.util.ListUtil
 import fansirsqi.xposed.sesame.util.Log
@@ -46,6 +49,7 @@ import fansirsqi.xposed.sesame.util.maps.UserMap
 import fansirsqi.xposed.sesame.util.maps.VipDataIdMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import lombok.ToString
 import org.json.JSONArray
 import org.json.JSONException
@@ -307,7 +311,7 @@ class AntFarm : ModelTask() {
                 false
             ).also { useAccelerateToolContinue = it })
         modelFields.addField(
-            IntegerModelField("remainingTime", "饲料剩余时间大于多少时直接使用加速（分钟）（-1关闭）", 40).also { remainingTime = it }
+            IntegerModelField("remainingTime", "饲料剩余时间大于多少时直接使用加速（分钟）（-1关闭）", 20).also { remainingTime = it }
         )
         modelFields.addField(
             BooleanModelField(
@@ -331,7 +335,7 @@ class AntFarm : ModelTask() {
             BooleanModelField(
                 "autoExchange",
                 "IP抽抽乐自动从高到低兑换物品",
-                false
+                true
             ).also { autoExchange = it })
         modelFields.addField(
             StringModelField(
@@ -346,7 +350,7 @@ class AntFarm : ModelTask() {
                 false
             ).also { recordFarmGame = it })
         modelFields.addField(
-            IntegerModelField("gameRewardMax", "游戏改分预计最大产出饲料量(g)", 180, 0, null).also { gameRewardMax = it }
+            IntegerModelField("gameRewardMax", "游戏改分预计最大产出饲料量(g)", 360, 0, null).also { gameRewardMax = it }
         )
         modelFields.addField(
             ListJoinCommaToStringModelField(
@@ -447,7 +451,7 @@ class AntFarm : ModelTask() {
                 false
             ).also { sendBackAnimal = it })
         modelFields.addField(
-            IntegerModelField("timeSendBack", "投喂饲料后间隔时间赶鸡(分,<10关闭)", 0, 0, null).also { timeSendBack = it }
+            IntegerModelField("timeSendBack", "投喂饲料后间隔时间赶鸡(分,<10关闭)", 30, 0, null).also { timeSendBack = it }
         )
         modelFields.addField(
             ChoiceModelField(
@@ -521,7 +525,7 @@ class AntFarm : ModelTask() {
             BooleanModelField(
                 "signRegardless",
                 "庄园签到忽略饲料余量",
-                true
+                false
             ).also { signRegardless = it })
         modelFields.addField(
             BooleanModelField(
@@ -602,13 +606,13 @@ class AntFarm : ModelTask() {
             BooleanModelField(
                 "useSmartSchedulerManager",
                 "使用SmartSchedulerManager定时蹲点任务",
-                false
+                true
             ).also { useSmartSchedulerManager = it })
         modelFields.addField(
             BooleanModelField(
                 "doChouChouLeDonationTask",
                 "抽抽乐捐赠任务(禁止开启)",
-                false
+                true
             ).also { doChouChouLeDonationTask = it })
         return modelFields
     }
@@ -1018,41 +1022,70 @@ class AntFarm : ModelTask() {
             }
             val sleepTaskId = "AS|$animalSleepTime"
             val wakeUpTaskId = "AW|$animalWakeUpTime"
+            val showName = UserMap.get(UserMap.currentUid)?.showName ?: "未知用户"
             if (!hasChildTask(sleepTaskId) && !afterSleepTime) {
-                addChildTask(
-                    ChildModelTask(
-                        sleepTaskId,
-                        "AS",
-                        suspendRunnable = {
-                            this.animalSleepNow()
-                            syncAnimalStatus(ownerFarmId)
-                            receiveFarmAwards()
-                        },
-                        animalSleepTime
-                    )
+                val logIdentifier = "${showName}小鸡睡觉计划"
+                val task = ChildModelTask(
+                    sleepTaskId,
+                    "AS",
+                    suspendRunnable = {
+                        this.animalSleepNow()
+                        syncAnimalStatus(ownerFarmId)
+                        receiveFarmAwards()
+                    },
+                    animalSleepTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier:${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已执行", 1)
+                    } else {
+                        Log.record("$logIdentifier:${
+                            TimeUtil.getCommonDate(animalSleepTime)
+                        } 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
-                    "添加定时睡觉🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
+                    "添加定时睡觉🛌[" + showName + "]在[" + TimeUtil.getCommonDate(
                         animalSleepTime
                     ) + "]执行"
                 )
+//                Log.animalStatus("${logIdentifier}[${
+//                    TimeUtil.getCommonDate(animalSleepTime)}]",24)
+            } else if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus){
+                Log.animalStatus("${showName}小鸡正在睡觉:${TimeUtil.getCommonDate(System.currentTimeMillis())}",10)
             }
             if (!hasChildTask(wakeUpTaskId) && !afterWakeUpTime) {
-                addChildTask(
-                    ChildModelTask(
-                        wakeUpTaskId,
-                        "AW",
-                        suspendRunnable = { this.animalWakeUpNow() },
-                        animalWakeUpTime
-                    )
+                val logIdentifier = "${showName}小鸡起床计划"
+                val task = ChildModelTask(
+                    wakeUpTaskId,
+                    "AW",
+                    suspendRunnable = { this.animalWakeUpNow() },
+                    animalWakeUpTime
                 )
+                task.onCompleted = { success ->
+                    if (success) {
+                        Log.animalStatus("$logIdentifier:${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        } 已执行", 1)
+                    } else {
+                        Log.record("$logIdentifier:${
+                            TimeUtil.getCommonDate(animalWakeUpTime)
+                        } 已取消", 1)
+                    }
+                }
+                addChildTask(task)
                 Log.record(
                     TAG,
-                    "添加定时起床🛌[" + UserMap.getCurrentMaskName() + "]在[" + TimeUtil.getCommonDate(
+                    "添加定时起床🛌[" + showName + "]在[" + TimeUtil.getCommonDate(
                         animalWakeUpTime
                     ) + "]执行"
                 )
+//                Log.animalStatus("${logIdentifier}[${
+//                    TimeUtil.getCommonDate(animalWakeUpTime)}]",24)
             }
             if (afterSleepTime) {
                 if (Status.canAnimalSleep()) {
@@ -1078,6 +1111,13 @@ class AntFarm : ModelTask() {
         try {
             val userId = UserMap.currentUid
             val jo = JSONObject(AntFarmRpcCall.enterFarm(userId, userId))
+
+            // 关键：先获取原始字符串 s
+            val s = AntFarmRpcCall.enterFarm(userId, userId)
+            // 打印庄园原始网页数据json到 Log.other，debug用
+//            Log.other(TAG, "enterFarm 原始数据: $s")
+            if (s.isNullOrEmpty()) return null
+
             if (ResChecker.checkRes(TAG, jo)) {
                 rewardProductNum =
                     jo.getJSONObject("dynamicGlobalConfig").getString("rewardProductNum")
@@ -1231,6 +1271,7 @@ class AntFarm : ModelTask() {
         }
 
         // 在蹲点喂食逻辑中判断是否需要执行游戏改分及抽抽乐
+        Log.farm("isChildTask=" + isChildTask)
         if (isChildTask) {
             if (recordFarmGame!!.value) {
                 handleFarmGameLogic()
@@ -1262,43 +1303,58 @@ class AntFarm : ModelTask() {
                                     ", 执行时间=" + TimeUtil.getCommonDate(nextFeedTime) + "]"
                         )
                         val taskId = "FA|$ownerFarmId"
-                        addChildTask(
-                            ChildModelTask(
-                                id = taskId,
-                                group = "FA",
-                                suspendRunnable = {
-                                    try {
-                                        Log.record(TAG, "🔔 蹲点投喂任务触发")
-                                        // 重新进入庄园，获取最新状态
-                                        enterFarm()
-                                        // 同步最新状态
-                                        syncAnimalStatus(ownerFarmId)
-                                        // 遣返
-                                        if (sendBackAnimal!!.value) {
-                                            sendBackAnimal()
-                                        }
-                                        // 雇佣小鸡
-                                        if (hireAnimal!!.value) {
-                                            hireAnimal()
-                                        }
-                                        // 喂鸡
-                                        handleAutoFeedAnimal(true)
-                                        Log.record(TAG, "🔄 下一次蹲点任务已创建")
-                                    } catch (e: Exception) {
-                                        Log.printStackTrace(TAG,"蹲点投喂任务执行失败", e)
+                        val showName = UserMap.get(UserMap.currentUid)?.showName ?: "未知用户"
+                        val logIdentifier = "${showName}🥣蹲点喂鸡"
+                        val task = ChildModelTask(
+                            id = taskId,
+                            group = "FA",
+                            suspendRunnable = {
+                                try {
+                                    Log.record(TAG, "🔔 蹲点投喂任务触发")
+                                    // 重新进入庄园，获取最新状态
+                                    enterFarm()
+                                    // 同步最新状态
+                                    syncAnimalStatus(ownerFarmId)
+                                    // 遣返
+                                    if (sendBackAnimal!!.value) {
+                                        sendBackAnimal()
                                     }
-                                },
-                                execTime = nextFeedTime,
-                                useSmartScheduler = useSmartSchedulerManager!!.value
-                            )
+                                    // 雇佣小鸡
+                                    if (hireAnimal!!.value) {
+                                        hireAnimal()
+                                    }
+                                    // 喂鸡
+                                    handleAutoFeedAnimal(true)
+                                    Log.record(TAG, "🔄 下一次蹲点任务已创建")
+                                } catch (e: Exception) {
+                                    Log.printStackTrace(TAG, "蹲点投喂任务执行失败", e)
+                                }
+                            },
+                            execTime = nextFeedTime,
+                            useSmartScheduler = useSmartSchedulerManager!!.value
                         )
-                        Log.record(UserMap.getCurrentMaskName() + "小鸡的蹲点投喂时间[" + TimeUtil.getCommonDate(nextFeedTime)+"]")
-                    } else {
+                        task.onCompleted = { success ->
+                            if (success) {
+                                Log.animalStatus("$logIdentifier:${TimeUtil.getCommonDate(nextFeedTime)} 已执行", 1)
+                            } else {
+                                Log.animalStatus("${logIdentifier}:${TimeUtil.getCommonDate(nextFeedTime)} 已取消", 1)
+                            }
+                        }
+                        addChildTask(task)
+                        Log.record(
+                            TAG,
+                            "添加蹲点投喂🥣[" + showName + "]在[" +
+                                    TimeUtil.getCommonDate(nextFeedTime) + "]执行"
+                        )
+                        Log.animalStatus("${logIdentifier}:${TimeUtil.getCommonDate(nextFeedTime)}",10)
+                    } else if (foodStock >= 180){
                         Log.record(TAG, "蹲点投喂🥣[倒计时为0，开始投喂]")
                         if (feedAnimal(ownerFarmId)) {
                             // 刷新状态
                             syncAnimalStatus(ownerFarmId)
                         }
+                    }else {
+                        Log.record(TAG, "蹲点投喂🥣[喂食失败],饲料不足")
                     }
                 }
             } catch (e: Exception) {
@@ -1379,7 +1435,10 @@ class AntFarm : ModelTask() {
         operateType: String?
     ): JSONObject? {
         try {
-            return JSONObject(AntFarmRpcCall.syncAnimalStatus(farmId, operTag, operateType))
+            val s = AntFarmRpcCall.syncAnimalStatus(farmId, operTag, operateType)
+            // 打印庄园原始网页json数据到 Log.other ,debug用
+//            Log.other(TAG, "syncAnimalStatus 原始数据: $s")
+            return JSONObject(s)
         } catch (e: Exception) {
             Log.printStackTrace(TAG, e)
             return null
@@ -1388,6 +1447,10 @@ class AntFarm : ModelTask() {
 
     private fun syncAnimalStatus(farmId: String?) {
         try {
+            // 获取调用者信息（堆栈索引 1 为调用此函数的位置）
+//            val caller = Throwable().stackTrace.getOrNull(1)
+//            val callerInfo = caller?.let { "${it.methodName}(${it.fileName}:${it.lineNumber})" } ?: "unknown"
+//            Log.record(TAG, "🔄 同步庄园状态 | 调用位置: $callerInfo")
             val jo = syncAnimalStatus(farmId, "SYNC_RESUME", "QUERY_ALL")
             parseSyncAnimalStatusResponse(jo!!)
         } catch (t: Throwable) {
@@ -2103,7 +2166,10 @@ class AntFarm : ModelTask() {
                     Log.record(TAG, "跳过黑名单任务: $title ($bizKey)")
                     continue
                 }
-
+                if ( (bizKey.contains("chouchoule") && enableChouchoule!!.value) ||
+                    (bizKey.equals("COOK") && kitchen!!.value) ){
+                    continue
+                }
                 if (Status.hasFlagToday("farm::task::limit::$bizKey")) continue
                 // 2. 执行 TODO 任务
                 when (taskStatus) {
@@ -2119,6 +2185,14 @@ class AntFarm : ModelTask() {
                                 if (!Status.hasFlagToday(CACHED_FLAG)) {
                                     answerQuestion("100")
                                 }
+                            }
+                            "SHANGYEHUA_90_1" -> {
+                                Log.record(TAG, "开始处理杂货铺任务: $title ($bizKey)")
+                                handleGroceryTask(bizKey, title)
+                            }
+                            "FAMILY_VIEW_TASK" -> {
+                                AntFarmRpcCall.enterFamily()
+                                handleGeneralTask(bizKey, title)
                             }
                             else -> {
                                 // --- 普通任务通用逻辑 ---
@@ -2193,6 +2267,34 @@ class AntFarm : ModelTask() {
             }
         }
     }
+    private suspend fun handleGroceryTask(bizKey: String, title: String) {
+        try {
+            // 1. 模拟进入杂货铺的广告插件初始化 (匹配截图 4)
+            AntFarmRpcCall.xlightPlugin("", "ZHUANGYUAN_HOULIAN_FUSION")
+
+            // 2. 模拟浏览 15 秒 (截图显示浏览 15s)
+            Log.record(TAG, "正在模拟浏览杂货铺，请等待 16 秒...")
+            delay(16000L)
+
+            // 3. 生成符合格式的 outBizNo: 任务名_时间戳_8位随机字符 (匹配截图 6)
+            // 示例: SHANGYEHUA_90_1_1768411150453_8a4b7cc9
+            val timestamp = System.currentTimeMillis()
+            val randomStr = RandomUtil.getRandomString(8)
+            val outBizNo = "${bizKey}_${timestamp}_${randomStr}"
+
+            // 4. 调用完成接口
+            val res = AntFarmRpcCall.finishTask(bizKey, "ANTFARM_FOOD_TASK", outBizNo)
+            val jo = JSONObject(res)
+
+            if (ResChecker.checkRes(TAG, jo)) {
+                Log.farm("庄园杂货铺任务完成🧾[$title]")
+            } else {
+                Log.error(TAG, "杂货铺任务完成失败: ${jo.optString("desc")}")
+            }
+        } catch (e: Exception) {
+            Log.printStackTrace(TAG, "handleGroceryTask 异常:", e)
+        }
+    }
 
     private suspend fun receiveFarmAwards() {
         try {
@@ -2244,79 +2346,88 @@ class AntFarm : ModelTask() {
                             Log.record(TAG, "${msg}。14点后会强制签到；如已签到请忽略")
                         }
                     }
-                    for (i in 0..<farmTaskList.length()) {
-                        // 如果饲料槽已满，跳过后续任务的领取
-                        val task = farmTaskList.getJSONObject(i)
-                        val taskStatus = task.getString("taskStatus")
-                        val taskTitle = task.optString("title", "未知任务")
+
+                        val unreceivedTasks = mutableListOf<JSONObject>()
+                        for (i in 0..<farmTaskList.length()) {
+                            // 如果饲料槽已满，跳过后续任务的领取
+                            val task = farmTaskList.getJSONObject(i)
+                            val taskStatus = task.getString("taskStatus")
+                            if (TaskStatus.FINISHED.name == taskStatus) {
+                                if ("ALLPURPOSE" == task.optString("awardType")) {
+                                    unreceivedTasks.add(task)
+                                }
+                            }
+                        }
+
+                    // 领取前先同步一次食槽状态，避免边界误差
+                    syncAnimalStatus(ownerFarmId)
+                    unreceivedTasks.sortByDescending { it.optInt("awardCount", 0) }
+                    for (task in unreceivedTasks) {
                         val awardCount = task.optInt("awardCount", 0)
+                        val taskTitle = task.optString("title", "未知任务")
                         val taskId = task.optString("taskId")
 
-                        if (TaskStatus.FINISHED.name == taskStatus) {
-                            // 领取前先同步一次食槽状态，避免边界误差
-                            syncAnimalStatus(ownerFarmId)
+                        val foodStockAfter = foodStock + awardCount
+                        val isNight = TimeUtil.isNowAfterOrCompareTimeStr("2000")
+                        val foodStockLeft = foodStockLimit - foodStock
+                        if (foodStock >= foodStockLimit) {
+                            Log.record(TAG, "饲料[已满],暂不领取")
+                            unreceiveTaskAward++
+                            isFeedFull = true
+                            break
+                        }
 
-                            val foodStockAfter = foodStock + awardCount
-                            val isNight = TimeUtil.isNowAfterOrCompareTimeStr("2000")
-                            val foodStockLeft = foodStockLimit - foodStock
-                            if ("ALLPURPOSE" == task.optString("awardType")) {
-                                /* 领取饲料前，当现有饲料>=上限时（实时只可能等于，不需要用大于等于的判断），或者在晚上20点前领取饲料后使饲料超过上限，则不领取饲料，
-                                    直接break方法。但是如果时间在20点后，这时饲料没满，比如差80g满，这时候领取90g的任务奖励虽然会超过饲料上限，但还是依然领取
-                                    饲料，这样能保证饲料第二天是满的开局。如果需要赠送饲料或厨房等会使饲料不是以90/180g减少的操作，应该不会有人在20点后还没有
-                                    完成吧？同时也避免了原逻辑的饲料差90g以内后总是领不满的问题。
-                                 */
-                                if (foodStock >= foodStockLimit) {
-                                    Log.record(TAG, "饲料[已满],暂不领取")
+                        if (!ignoreAcceLimit!!.value && (needFarmGame && foodStock >= (foodStockLimit - gameRewardMax!!.value))) {
+                            unreceiveTaskAward++
+                            Log.record("当日游戏改分未完成，预留最多${gameRewardMax!!.value}饲料空间，现有饲料${foodStock}g，需再消耗${gameRewardMax!!.value -(foodStockLimit-foodStock)}g")
+                            isFeedFull = true
+                            break
+                        }
+
+                        if (awardCount > foodStockLeft) {
+                            if (!isNight) {
+                                // 20点前，为了不浪费，跳过当前奖励。
+                                if (awardCount > 90 && foodStockLeft >= 90) {
+                                    Log.record(TAG, "任务[$taskTitle]奖励${awardCount}g会超出，尝试查找领取后续任务...")
                                     unreceiveTaskAward++
-                                    isFeedFull = true
-                                    break
+                                    continue
                                 }
-                                // 针对连续使用加速卡时的领取饲料逻辑，留gameRewardMax以内（含）的空间。(同时确认开启游戏改分)
-                                if (!ignoreAcceLimit!!.value && (needFarmGame && foodStock >= (foodStockLimit - gameRewardMax!!.value))) {
+                                Log.record(TAG, "领取任务：${ taskTitle } 的饲料奖励 ${awardCount}g后将超过[${foodStockLimit}g]上限!终止领取。现有饲料${foodStock}g")
+                                unreceiveTaskAward ++
+                                isFeedFull = true
+                                break
+                            } else {
+                                val hasSmallerTask = unreceivedTasks.any { it.optInt("awardCount",0) <= 90 && unreceivedTasks.indexOf(it) > unreceivedTasks.indexOf(task) }
+                                if (awardCount > 90 && foodStockLeft <= 90 && hasSmallerTask) {
+                                    Log.record(TAG, "时间超过20点，任务[$taskTitle]奖励${awardCount}g会超出，尝试查找领取后续任务...")
                                     unreceiveTaskAward++
-                                    Log.record("当日游戏改分未完成，预留最多${gameRewardMax!!.value}饲料空间，现有饲料${foodStock}g")
-                                    isFeedFull = true
-                                    break
+                                    continue
                                 }
-                                if (awardCount > foodStockLeft) {
-                                    if (!isNight) {
-                                        // 20点前，为了不浪费，跳过当前奖励。
-                                        if (awardCount > 90 && foodStockLeft >= 90) {
-                                            unreceiveTaskAward++
-                                            continue
-                                        }
-                                        Log.record(TAG, "领取任务：${taskTitle} 的饲料奖励 ${awardCount}g后将超过[${foodStockLimit}g]上限!终止领取。现有饲料${foodStock}g")
-                                        unreceiveTaskAward++
-                                        isFeedFull = true
-                                        break
-                                    } else {
-                                        Log.record("20点后领取任务：${taskTitle} 的饲料奖励 ${awardCount}g后饲料将超过上限，现有饲料${foodStock}g，溢出${awardCount - foodStockLeft}g")
-                                    }
-                                }
+                                Log.record("20点后领取任务：${taskTitle} 的饲料奖励 ${awardCount}g后饲料将超过上限，现有饲料${foodStock}g，溢出${awardCount - foodStockLeft}g")
                             }
-                            val receiveTaskAwardjo = JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId))
-                            if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
-                                add2FoodStock(awardCount)
-                                Log.farm("收取庄园任务奖励[$taskTitle] # ${awardCount}g (剩余容量: ${foodStockLimit - foodStock}g)")
-                                if(foodStockAfter >= foodStockLimit){
-                                    Log.farm("领取饲料后饲料[已满]" + foodStock + "g，停止后续领取")
-                                    isFeedFull = true
-                                    break
-                                }
-                                doubleCheck = true
-                                if (unreceiveTaskAward > 0) unreceiveTaskAward--
+                        }
+                        val receiveTaskAwardjo = JSONObject(AntFarmRpcCall.receiveFarmTaskAward(taskId))
+                        if (ResChecker.checkRes(TAG + "领取庄园任务奖励失败:", receiveTaskAwardjo)) {
+                            add2FoodStock(awardCount)
+                            Log.farm("收取庄园任务奖励[$taskTitle] # ${awardCount}g (剩余容量: ${foodStockLimit - foodStock}g)")
+                            if(foodStockAfter >= foodStockLimit){
+                                Log.farm("领取饲料后饲料[已满]" + foodStock + "g，停止后续领取")
+                                isFeedFull = true
+                                break
                             }
-                            else {
-                                // 捕获饲料槽已满（331），设置满槽标记并停止后续领取
-                                val resultCode = receiveTaskAwardjo.optString("resultCode", "")
-                                val memo = receiveTaskAwardjo.optString("memo", "")
-                                if ("331" == resultCode || memo.contains("饲料槽已满")) {
-                                    Log.record(TAG, "领取失败：饲料槽已满，停止后续领取")
-                                    isFeedFull = true
-                                    break
-                                } else {
-                                    Log.error(TAG, "领取庄园任务奖励失败：$receiveTaskAwardjo")
-                                }
+                            doubleCheck = true
+                            if (unreceiveTaskAward > 0) unreceiveTaskAward--
+                        }
+                        else {
+                            // 捕获饲料槽已满（331），设置满槽标记并停止后续领取
+                            val resultCode = receiveTaskAwardjo.optString("resultCode", "")
+                            val memo = receiveTaskAwardjo.optString("memo", "")
+                            if ("331" == resultCode || memo.contains("饲料槽已满")) {
+                                Log.record(TAG, "领取失败：饲料槽已满，停止后续领取")
+                                isFeedFull = true
+                                break
+                            } else {
+                                Log.error(TAG, "领取庄园任务奖励失败：$receiveTaskAwardjo")
                             }
                         }
                         delay(1000)
@@ -2410,6 +2521,8 @@ class AntFarm : ModelTask() {
                     if (sendBackAnimal!!.value && timeSendBackAnimal > 0) {
                         try {
                             val taskId = "KC|$ownerFarmId"
+                            val showName = UserMap.get(UserMap.currentUid)?.showName ?: "未知用户"
+                            val logIdentifier = "${showName}蹲点赶鸡"
                             val kcTime =
                                 TimeUtil.getCommonDate(System.currentTimeMillis() + timeSendBackAnimal * 60 * 1000L)
                             val task = ChildModelTask(
@@ -2429,8 +2542,17 @@ class AntFarm : ModelTask() {
                                 execTime = System.currentTimeMillis() + timeSendBackAnimal * 60 * 1000L,
                                 useSmartScheduler = useSmartSchedulerManager!!.value
                             )
+                            // 设置完成回调
+                            task.onCompleted = { success ->
+                                if (success) {
+                                    Log.animalStatus("$logIdentifier:${kcTime} 已执行", 1)
+                                } else {
+                                    Log.animalStatus("$logIdentifier:${kcTime} 已取消", 1)
+                                }
+                            }
                             addChildTask(task)
                             Log.record(UserMap.getCurrentMaskName() + "${timeSendBackAnimal}分钟后${kcTime}蹲点赶小鸡")
+                            Log.animalStatus("${logIdentifier}:${kcTime}",1)
 
                         } catch (e: Exception) {
                             Log.printStackTrace(TAG, "创建蹲点赶鸡失败: ${e.message}", e)
@@ -2460,6 +2582,8 @@ class AntFarm : ModelTask() {
     private fun listFarmTool(): List<FarmTool>? {
         try {
             var jo = JSONObject(AntFarmRpcCall.listFarmTool())
+            // 打印原始 JSON 数据
+//            Log.other(TAG, "listFarmTool 原始数据: $jo")
             if (ResChecker.checkRes(TAG, jo)) {
                 val jaToolList = jo.getJSONArray("toolList")
                 val tempList = mutableListOf<FarmTool>()
@@ -2471,6 +2595,7 @@ class AntFarm : ModelTask() {
                     tool.toolCount = jo.getInt("toolCount")
                     tool.toolHoldLimit = jo.optInt("toolHoldLimit", 20)
                     tempList.add(tool)
+//                    Log.other(TAG, "拥有的道具: ${tool.toolType?.nickName()} | ID: ${tool.toolId} | 数量: ${tool.toolCount}")
                 }
                 farmTools = tempList.toTypedArray()
                 return tempList
@@ -2903,6 +3028,16 @@ class AntFarm : ModelTask() {
                 finalScore = jo.getJSONObject("emotionInfo").getDouble("finalScore")
             }
             val subFarmVO = jo.getJSONObject("subFarmVO")
+
+            val newFarmId = subFarmVO.getString("farmId")
+
+            // 【关键点】检测账号切换
+            if (!ownerFarmId.isNullOrEmpty() && ownerFarmId != newFarmId) {
+                Log.record(TAG, "检测到账号切换，清理旧账号[${ownerFarmId}]的闹钟")
+                SmartSchedulerManager.cancelAll()
+            }
+            ownerFarmId = newFarmId
+
             // 解析服务端返回的“是否已使用加饭卡”状态
             serverUseBigEaterTool = subFarmVO.optBoolean("useBigEaterTool", false)
             if (subFarmVO.has("foodStock")) {
@@ -2987,8 +3122,21 @@ class AntFarm : ModelTask() {
                 val animal: Animal =
                     objectMapper.readValue(animalJson.toString(), Animal::class.java)
                 animalList.add(animal)
+                // debug小鸡状态的Log
+//                Log.other("animalID:" + animal.animalId + ",startEatTime=" + TimeUtil.getCommonDate(animal.startEatTime) + ",consumeSpeed=" + animal.consumeSpeed
+//                + ",foodHaveEatten=" + animal.foodHaveEatten + ",foodHaveStolen=" + animal.foodHaveStolen + ",animalFeedStatus=" + animal.animalFeedStatus
+//                    + ",animalInteractStatus=" + animal.animalInteractStatus
+//                )
                 if (animal.masterFarmId == ownerFarmId) {
                     ownerAnimal = animal
+                    // debug小鸡状态的Log
+//                    Log.other(TAG,"SyncAnimalStatus()调用；Countdown=" + String.format(
+//                        Locale.CHINA,
+//                        "%02d:%02d:%02d",
+//                        countdown!! / 3600,
+//                        (countdown!! % 3600) / 60,
+//                        countdown!! % 60
+//                    ))
                 }
                 //                Log.record(TAG, "当前动物：" + animal.toString());
             }
@@ -3083,6 +3231,8 @@ class AntFarm : ModelTask() {
                 val cookTimesAllowed = jo.getInt("cookTimesAllowed")
                 if (cookTimesAllowed > 0) {
                     for (i in 0..<cookTimesAllowed) {
+                        val randomDelay = RandomUtil.nextInt(1000, 3000).toLong()
+                        delay(randomDelay)
                         jo = JSONObject(AntFarmRpcCall.cook(userId, "VILLA"))
                         if (ResChecker.checkRes(TAG, jo)) {
                             val cuisineVO = jo.getJSONObject("cuisineVO")
@@ -4096,6 +4246,9 @@ class AntFarm : ModelTask() {
         @JsonProperty("foodHaveStolen")
         var foodHaveStolen: Double? = null
 
+        @JsonProperty("countdown")
+        var animalCountdown: Int? = null
+
         @JsonProperty("animalStatusVO")
         fun unmarshalAnimalStatusVO(map: MutableMap<String?, Any?>?) {
             if (map != null) {
@@ -4737,6 +4890,8 @@ class AntFarm : ModelTask() {
             val jo = enterFarm()
             if (jo != null) {
                 val cuisineList = jo.getJSONArray("cuisineList")
+                AntFarmRpcCall.queryLoveCabin(UserMap.currentUid)
+                syncAnimalStatus(ownerFarmId)
 
                 if (AnimalFeedStatus.SLEEPY.name == ownerAnimal.animalFeedStatus) {
                     Log.record(TAG, "❌ 小鸡正在睡觉，无法使用美食")

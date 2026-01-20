@@ -4,6 +4,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -33,6 +34,9 @@ public class AntForestRpcCall {
                     break;
                 case "10.3.96.8100":
                     VERSION = "20230501"; // 2023年版本
+                    break;
+                case "10.6.58.9100":
+                    VERSION = "20250818";
                     break;
                 default:
                     VERSION = "20250813";
@@ -102,20 +106,25 @@ public class AntForestRpcCall {
             return "";
         }
     }
-
-    public static String queryHomePage() throws JSONException {
+    public static String queryHomePage(String source) throws JSONException {
         JSONObject requestObject = new JSONObject()
                 .put("activityParam", new JSONObject())
                 .put("configVersionMap", new JSONObject().put("wateringBubbleConfig", "0"))
                 .put("skipWhackMole", false)
-                .put("source", "chInfo_ch_appcenter__chsub_9patch")
+                .put("source", source)
                 .put("version", VERSION);
+
         return RequestManager.requestString(
                 "alipay.antforest.forest.h5.queryHomePage",
                 new JSONArray().put(requestObject).toString(),
                 3,
                 1000
         );
+    }
+
+    /** 默认来源的森林主页查询 */
+    public static String queryHomePage() throws JSONException {
+        return queryHomePage("chInfo_ch_appcenter__chsub_9patch");
     }
 
     public static String queryFriendHomePage(String userId, String fromAct) {
@@ -232,7 +241,11 @@ public class AntForestRpcCall {
     }
 
     public static String queryEnergyRainHome() {
-        return RequestManager.requestString("alipay.antforest.forest.h5.queryEnergyRainHome", "[{\"source\":\"senlinguangchuangrukou\",\"version\":\"" + VERSION + "\"}]");
+        return queryEnergyRainHome("20230501");
+    }
+
+    public static String queryEnergyRainHome(String version) {
+        return RequestManager.requestString("alipay.antforest.forest.h5.queryEnergyRainHome", "[{\"source\":\"senlinguangchuangrukou\",\"version\":\"" + version + "\"}]");
     }
 
     public static String queryEnergyRainCanGrantList() {
@@ -244,13 +257,21 @@ public class AntForestRpcCall {
     }
 
     public static String startEnergyRain() {
-        return RequestManager.requestString("alipay.antforest.forest.h5.startEnergyRain", "[{\"version\":\"" + VERSION + "\"}]");
+        return startEnergyRain("20230501");
+    }
+
+    public static String startEnergyRain(String version) {
+        return RequestManager.requestString("alipay.antforest.forest.h5.startEnergyRain", "[{\"version\":\"" + version + "\"}]");
     }
 
     public static String energyRainSettlement(int saveEnergy, String token) {
+        return energyRainSettlement(saveEnergy, token, "20230501");
+    }
+
+    public static String energyRainSettlement(int saveEnergy, String token, String version) {
         return RequestManager.requestString(
                 "alipay.antforest.forest.h5.energyRainSettlement",
-                "[{\"activityPropNums\":0,\"saveEnergy\":" + saveEnergy + ",\"token\":\"" + token + "\",\"version\":\"" + VERSION + "\"}]");
+                "[{\"activityPropNums\":0,\"saveEnergy\":" + saveEnergy + ",\"token\":\"" + token + "\",\"version\":\"" + version + "\"}]");
     }
 
     public static String queryTaskList() throws JSONException {
@@ -523,6 +544,8 @@ public class AntForestRpcCall {
     }
 
     /** 6秒拼手速 打地鼠 */
+
+
     public static String startWhackMole() throws JSONException
     {
         JSONObject param = new JSONObject();
@@ -531,6 +554,14 @@ public class AntForestRpcCall {
                 "alipay.antforest.forest.h5.startWhackMole",
                 "[" + param + "]"
         );
+    }
+
+    public static void flowHubEntrance() throws JSONException {
+        JSONObject param = new JSONObject();
+        param.put("bizType", "ANTFOREST");
+        param.put("flowEntranceId", "ANTFOREST_WUFU_2026"); // 修正为 WUFU
+        param.put("source", "ANTFOREST");
+        RequestManager.requestString("com.alipay.antpwgrowth.flowHubEntrance", "[" + param + "]");
     }
 
     /** 6秒拼手速 兼容模式打地鼠 */
@@ -564,7 +595,6 @@ public class AntForestRpcCall {
 
     public static String settlementWhackMole(String token)
             throws JSONException {
-        // moleIdList 改为 1 ,20（包含 1-20）
         List<Integer> moleIdList = IntStream.rangeClosed(1, 15)
                 .boxed()
                 .collect(Collectors.toList());
@@ -573,7 +603,7 @@ public class AntForestRpcCall {
         param.put("settlementScene", "NORMAL");
         param.put("source", "senlinguangchangdadishu");
         param.put("token", token);
-        param.put("version", VERSION);
+        param.put("version", "20230824"); // 修正为 VERSION
         return RequestManager.requestString(
                 "alipay.antforest.forest.h5.settlementWhackMole",
                 "[" + param + "]"
@@ -706,7 +736,7 @@ public class AntForestRpcCall {
         requestData.put("source", source); // 必须传递 source
 
         String args = "[" + requestData + "]";
-        Log.record("AntForestRpcCall", "enterDrawActivityopengreen - 活动: " + activityId + ", 场景: " + sceneCode + ", source: " + source);
+        Log.record("AntForestRpcCall", "enterDrawActivityopengreen - 活动: " + activityId + ", 场景: " + sceneCode + ", source: " + source, 0);
         return RequestManager.requestString("com.alipay.antiepdrawprod.enterDrawActivityopengreen", args);
     }
 
@@ -719,7 +749,7 @@ public class AntForestRpcCall {
         requestData.put("source", source); // 必须传递 source
 
         String args = "[" + requestData + "]";
-        Log.record("AntForestRpcCall", "listTaskopengreen - 场景: " + sceneCode + ", source: " + source);
+        Log.record("AntForestRpcCall", "listTaskopengreen - 场景: " + sceneCode + ", source: " + source, 0);
         return RequestManager.requestString("com.alipay.antieptask.listTaskopengreen", args);
     }
 
@@ -735,7 +765,7 @@ public class AntForestRpcCall {
         requestData.put("userId", userId);
 
         String args = "[" + requestData + "]";
-        Log.record("AntForestRpcCall", "drawopengreen - 活动: " + activityId + ", 场景: " + sceneCode + ", source: " + source);
+        Log.record("AntForestRpcCall", "drawopengreen - 活动: " + activityId + ", 场景: " + sceneCode + ", source: " + source, 0);
         return RequestManager.requestString("com.alipay.antiepdrawprod.drawopengreen", args);
     }
 
@@ -751,7 +781,7 @@ public class AntForestRpcCall {
         requestData.put("taskType", taskType);
 
         String args = "[" + requestData + "]";
-        Log.record("AntForestRpcCall", "receiveTaskAwardopengreen - 任务: " + taskType + ", source: " + source);
+        Log.record("AntForestRpcCall", "receiveTaskAwardopengreen - 任务: " + taskType + ", source: " + source, 0);
         return RequestManager.requestString("com.alipay.antieptask.receiveTaskAwardopengreen", args);
     }
 
@@ -768,7 +798,7 @@ public class AntForestRpcCall {
         requestData.put("taskType", taskType);
 
         String args = "[" + requestData + "]";
-        Log.record("AntForestRpcCall", "exchangeTimesFromTaskopengreen - 活动: " + activityId + ", 任务: " + taskType + ", source: " + source);
+        Log.record("AntForestRpcCall", "exchangeTimesFromTaskopengreen - 活动: " + activityId + ", 任务: " + taskType + ", source: " + source, 0);
         return RequestManager.requestString("com.alipay.antiepdrawprod.exchangeTimesFromTaskopengreen", args);
     }
 
@@ -791,7 +821,7 @@ public class AntForestRpcCall {
 
         params.put("taskType", taskType);
         String args = "[" + params + "]";
-        Log.record("AntForestRpcCall", "finishTask4Chouchoule - 任务: " + taskType);
+        Log.record("AntForestRpcCall", "finishTask4Chouchoule - 任务: " + taskType, 0);
         return RequestManager.requestString("com.alipay.antiep.finishTask", args);
     }
 
@@ -808,7 +838,7 @@ public class AntForestRpcCall {
 
         params.put("taskType", taskType);
         String args = "[" + params + "]";
-        Log.record("AntForestRpcCall", "finishTaskopengreen - 任务: " + taskType);
+        Log.record("AntForestRpcCall", "finishTaskopengreen - 任务: " + taskType, 0);
         return RequestManager.requestString("com.alipay.antieptask.finishTaskopengreen", args);
     }
 

@@ -4,8 +4,12 @@ import android.content.Context
 import fansirsqi.xposed.sesame.model.BaseModel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.io.path.exists
+import kotlin.io.path.readLines
+
 
 /**
  * 日志工具类，负责初始化和管理各种类型的日志记录器，并提供日志输出方法。
@@ -18,6 +22,7 @@ object Log {
     private val errorCountMap = ConcurrentHashMap<String, AtomicInteger>()
 
     // Logger 实例
+    private val RUNTIME_LOGGER: Logger
     private val RECORD_LOGGER: Logger
     private val DEBUG_LOGGER: Logger
     private val FOREST_LOGGER: Logger
@@ -25,12 +30,14 @@ object Log {
     private val OTHER_LOGGER: Logger
     private val ERROR_LOGGER: Logger
     private val CAPTURE_LOGGER: Logger
+    private val ANIMAL_STATUS_LOGGER: Logger
 
     init {
         // 🔥 1. 立即初始化 Logcat，确保在任何 Context 到来之前控制台可用
         Logback.initLogcatOnly()
 
         // 2. 初始化 Logger 实例 (此时它们已经有了 Logcat 能力)
+        RUNTIME_LOGGER = LoggerFactory.getLogger("runtime")
         RECORD_LOGGER = LoggerFactory.getLogger("record")
         DEBUG_LOGGER = LoggerFactory.getLogger("debug")
         FOREST_LOGGER = LoggerFactory.getLogger("forest")
@@ -38,6 +45,7 @@ object Log {
         OTHER_LOGGER = LoggerFactory.getLogger("other")
         ERROR_LOGGER = LoggerFactory.getLogger("error")
         CAPTURE_LOGGER = LoggerFactory.getLogger("capture")
+        ANIMAL_STATUS_LOGGER = LoggerFactory.getLogger("animal_status")
     }
 
     /**
@@ -57,20 +65,25 @@ object Log {
 
 
     @JvmStatic
-    fun record(msg: String) {
-        if (BaseModel.recordLog.value == true) {
+    @JvmOverloads
+    fun record(msg: String, type: Int = 1) {
+        RUNTIME_LOGGER.debug("$DEFAULT_TAG{}", msg)
+        // 使用 ?: true 确保即使配置项为 null 也默认记录日志
+        val shouldRecord = if (type == 1) (BaseModel.recordLog.value ?: true) else false
+        if (shouldRecord) {
             RECORD_LOGGER.info("$DEFAULT_TAG{}", msg)
         }
     }
 
     @JvmStatic
-    fun record(tag: String, msg: String) {
-        record("[$tag]: $msg")
+    @JvmOverloads
+    fun record(tag: String, msg: String, type: Int = 1) {
+        record("[$tag]: $msg", type)
     }
 
     @JvmStatic
     fun forest(msg: String) {
-        record(msg)
+        record(msg, 1)
         FOREST_LOGGER.debug("{}", msg)
     }
 
@@ -81,12 +94,13 @@ object Log {
 
     @JvmStatic
     fun farm(msg: String) {
-        record(msg)
+        record(msg, 1)
         FARM_LOGGER.debug("{}", msg)
     }
 
     @JvmStatic
     fun other(msg: String) {
+        record(msg, 1)
         OTHER_LOGGER.debug("{}", msg)
     }
 
@@ -97,6 +111,7 @@ object Log {
 
     @JvmStatic
     fun debug(msg: String) {
+        record(msg, 0)
         DEBUG_LOGGER.debug("{}", msg)
     }
 
@@ -107,6 +122,7 @@ object Log {
 
     @JvmStatic
     fun error(msg: String) {
+        record(msg, 0)
         ERROR_LOGGER.error("$DEFAULT_TAG{}", msg)
     }
 
@@ -162,7 +178,7 @@ object Log {
 
         // 如果是第3次，记录一个汇总信息
         if (currentCount == MAX_DUPLICATE_ERRORS) {
-            record("⚠️ 错误【$errorSignature】已出现${currentCount}次，后续将不再打印详细堆栈")
+            record("⚠️ 错误【$errorSignature】已出现${currentCount}次，后续将不再打印详细堆栈", 0)
             return true
         }
 
@@ -213,6 +229,57 @@ object Log {
     @JvmStatic
     fun printStack(tag: String) {
         val stackTrace = "stack: " + android.util.Log.getStackTraceString(Exception("获取当前堆栈$tag:"))
-        record(stackTrace)
+        record(stackTrace, 0)
+    }
+
+    /**
+     * 动物状态日志输出（由 Logback 接管滚动，去除手动去重/过期清理）
+     */
+    @JvmStatic
+    fun animalStatus(msg: String) {
+        // 依然记录到 record.log 备份
+        record(msg, 1)
+        ANIMAL_STATUS_LOGGER.info(msg.trim())
+    }
+
+    /**
+     * 动物状态日志输出 (兼容旧 API)
+     */
+    @JvmStatic
+    @Suppress("UNUSED_PARAMETER")
+    fun animalStatus(msg: String, expiryHours: Int) {
+        animalStatus(msg)
+    }
+
+    @JvmStatic
+    fun animalStatus(TAG: String?, msg: String?) {
+        animalStatus("[" + TAG + "]: " + msg)
+    }
+
+    /**
+     * 物理删除特定的动物状态日志* 在 TaskRunner 开始运行时调用，清理旧的状态信息
+     */
+    @JvmStatic
+    @Synchronized
+    fun removeAnimalStatus(identifier: String) {
+        if (identifier.isEmpty()) return
+
+        val logFile = File(Files.LOG_DIR, "animal_status.log")
+        if (!logFile.exists()) return
+
+        try {
+            // 读取所有行并过滤
+            val lines = logFile.readLines()
+            val filteredLines = lines.filter { !it.contains(identifier) }
+
+            // 如果行数没有变化，说明不需要重写
+            if (lines.size == filteredLines.size) return
+
+            // 重新写入文件
+            logFile.writeText(filteredLines.joinToString("\n") + if (filteredLines.isNotEmpty()) "\n" else "")
+            record("Log", "已清理动物状态日志中的用户数据: $identifier")
+        } catch (e: Exception) {
+            record("Log", "清理动物状态日志失败: ${e.message}", 0)
+        }
     }
 }
